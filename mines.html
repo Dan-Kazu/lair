@@ -278,7 +278,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
       <section class="card dm-only">
         <div class="row" style="justify-content:space-between;margin-bottom:6px">
           <h2 style="margin:0">Areas</h2>
-          <div class="row"><button class="small" id="revAll">Reveal all</button><button class="small" id="hideAll">Hide all</button></div>
+          <div class="row"><button class="small" id="revAll">Reveal all</button><button class="small" id="crawlFound" title="The Crawl and its side passages stop being secret: players see them only when a sight token has line of sight, like any other path">Find The Crawl (sight only)</button><button class="small" id="hideAll">Hide all</button></div>
         <div class="row" style="margin:4px 0 6px;gap:6px;flex-wrap:wrap"><b>Labels</b><button class="small" id="pLabels">Players see labels: on</button><button class="small" id="myLabels">My labels: on</button></div>
         </div>
         <p class="hint">Players see what their sight tokens can see (walls block it), plus areas you tick or paint. Places they have seen stay grayed out, frozen as they last saw them: mobs there are hidden, and anything you add there stays invisible until they look again. Pick who gives sight on each token, or use Party sees. Use Paint: reveal / Paint: hide in the toolbar to brush visibility on the map. Square brush: type an angle, or nudge it 1° with ⟲ ⟳ or the [ ] keys (Shift for 15°), hold Shift while dragging for a straight edge. Darkened parts of your map are hidden from players.</p>
@@ -430,7 +430,7 @@ function publicView(st){
   const rev=new Set(st.revealed||[]);
   const V=computeVision(st), seenA=new Set([...(st.seenAreas||[]),...V.areas]);
   const pubAreas=areasOf(st).filter(a=>rev.has(a.id)||areaPainted(a,st)||paintVisibleAt(a.tag[0],a.tag[1],st)||seenA.has(a.id))
-    .map(a=>{ const seen=rev.has(a.id)||paintVisibleAt(a.tag[0],a.tag[1],st)||tagInSight(V.polys,a.tag[0],a.tag[1])||nearExplored(st,a.tag[0],a.tag[1]); const show=seen&&!st.labelsOff; const o=Object.assign(clone(a),{name:show?a.name:"",seen:show}); if (!(a.rail||a.id==="2")) delete o.stripe; return o; });
+    .map(a=>{ const seen=rev.has(a.id)||paintVisibleAt(a.tag[0],a.tag[1],st)||tagInSight(V.polys,a.tag[0],a.tag[1])||nearExplored(st,a.tag[0],a.tag[1]); const show=seen&&!st.labelsOff; const o=Object.assign(clone(a),{name:show?a.name:"",seen:show}); if (!(a.rail||a.id==="2")) delete o.stripe; if (a.hid&&(st.found||[]).includes(a.id)) o.hid=false; return o; });
   const shownIds=new Set(pubAreas.map(a=>a.id));
   const canSee=t=>t.kind==="party"||(t.invisible ? (V.truePolys.length ? V.truePolys.some(p=>inPoly(p,t.x,t.y)) : true) && senseAt(st,"invis",t) && !envAt(st,"dm",t.x,t.y) : !hiddenByEnv(st,t)&&(t.playerMove||paintVisibleAt(t.x,t.y,st)||tokenInRevealed(t,st)||V.polys.some(p=>inPoly(p,t.x,t.y))));
   return {v:2, draws:(st.draws||[]).map(d=>(d.seen||inView(V.polys,drawPts(d)))?d:Object.assign({},d,{unseen:true})), env:(st.env||[]).map(s=>{ const o=s.vis?Object.assign({},s,{show:s.vis==="step"?!!s.found:sensedEnv(st,s)}):Object.assign({},s); if(!s.seen&&!inView(V.polys,stampPts(s))) o.unseen=true; return o; }), envSee:envSee(st), templates:(st.templates||[]).slice(), battle:!!st.battle, round:st.round, phase:st.phase, auras:st.auras, cur:st.cur, revealed:(st.revealed||[]).slice(), paint:(st.paint||[]).slice(),
@@ -589,7 +589,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-14a";
+const APP_VER = "2026-10-22a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -736,7 +736,8 @@ const CELL=5, GW=Math.ceil(ROOM_W/CELL), GH=Math.ceil(ROOM_H/CELL), RAYS=720;
 let floorCache={key:null}, visCache={key:null};
 function floorMap(st){
   const A=areasOf(st), rev=new Set(st.revealed||[]);
-  const use=A.filter(a=>!a.hid||rev.has(a.id));
+  const fnd=new Set(st.found||[]);
+  const use=A.filter(a=>!a.hid||fnd.has(a.id)||rev.has(a.id));
   const key=A.length+"|"+use.map(a=>a.id).join(",");
   if (floorCache.key===key) return floorCache;
   const cv=document.createElement("canvas"); cv.width=ROOM_W; cv.height=ROOM_H;
@@ -861,12 +862,12 @@ function drawMines(defs){
     for(let i=0;i<14;i++){ el("circle",{cx:fx(30+i*72),cy:fy(28),r:12,fill:"#3B6D11"},g); el("circle",{cx:fx(52+i*72),cy:fy(58),r:10,fill:"#27500A"},g); } }
   const layers=[el("g",{},world),el("g",{},world),el("g",{},world)];
   areasOf(S).filter(a=>!a.forest&&(dm||!a.hid||rev.has(a.id)||areaPainted(a))).forEach(a=>{
-    const f=a.hid?HIDF:FLOOR;
+    const hd=a.hid&&!(S.found||[]).includes(a.id), f=hd?HIDF:FLOOR;
     a.shapes.forEach(sh=>{
       if (sh.t==="p"){ shapeEl(sh,layers[0],{p:{stroke:EDGE,"stroke-width":(sh.w+10)*U}}); shapeEl(sh,layers[1],{p:{stroke:a.lair?"#E6DCC6":f,"stroke-width":sh.w*U}}); }
       else { shapeEl(sh,layers[0],{s:{fill:"none",stroke:a.lair?"#2E2A35":EDGE,"stroke-width":a.lair?8:6}}); shapeEl(sh,layers[1],{s:{fill:a.lair?"#E6DCC6":f}}); }
     });
-    if (a.stripe) a.shapes.filter(sh=>sh.t==="p").forEach(sh=>shapeEl(sh,layers[2],{p:{stroke:a.stripe,"stroke-width":3,opacity:0.75,"stroke-dasharray":a.hid?"6 8":"none"}}));
+    if (a.stripe) a.shapes.filter(sh=>sh.t==="p").forEach(sh=>shapeEl(sh,layers[2],{p:{stroke:a.stripe,"stroke-width":3,opacity:0.75,"stroke-dasharray":hd?"6 8":"none"}}));
   });
   let gd=""; for(let x=10;x<ROOM_W;x+=10) gd+=`M${fx(x)} ${fy(0)}V${fy(ROOM_H)}`; for(let y=10;y<ROOM_H;y+=10) gd+=`M${fx(0)} ${fy(y)}H${fx(ROOM_W)}`;
   const gridG=el("g",{},world); el("path",{d:gd,stroke:"#000","stroke-opacity":0.08,"stroke-width":0.5,fill:"none"},gridG);
@@ -1098,7 +1099,7 @@ function renderSel(){
     $("cDead").onclick=()=>{ c.dead=!c.dead; if(!c.dead&&c.hp===0)c.hp=1; commit(); renderAll(); };
     return;
   }
-  if (!ui.sel.length){ body.innerHTML=`<p class="muted" style="margin:0">Click a token to see its HP, size, and group. Shift-click (or turn on Multi-select) to pick several and group them.</p>`; return; }
+  if (!ui.sel.length){ body.innerHTML=`<p class="muted" style="margin:0">Click a token to see its HP, size, and group. Shift-click (or turn on Multi-select) to pick several and group them. Ctrl+C / Ctrl+V copies and pastes tokens (also between the two maps).</p>${(readClip()||window.__clip)?`<div class="row" style="margin-top:6px"><button class="small" id="sPaste">Paste ${(readClip()||window.__clip).length} copied token${(readClip()||window.__clip).length>1?"s":""}</button></div>`:""}`; if($("sPaste")) $("sPaste").onclick=()=>pasteTokens(); return; }
   if (ui.sel.length>1){
     const ts=ui.sel.map(tok).filter(Boolean);
     body.innerHTML=`<div><strong>${ts.length} tokens selected</strong></div>
@@ -1108,7 +1109,8 @@ function renderSel(){
       <div class="row" style="margin-top:6px"><button class="small" id="mPM">Let players move these</button><button class="small" id="mPMoff">Lock from players</button></div>
       <div class="row" style="margin-top:6px">${encSelectHTML("mEnc")}</div>
       <div class="row" style="margin-top:6px"><button class="small" id="mVis">Give sight</button><button class="small" id="mVisOff">Remove sight</button></div>
-      <div class="row" style="margin-top:6px"><button class="small" id="mUngroup">Remove from groups</button><button class="small" id="mInit">Add each to initiative</button><button class="small" id="mClear">Clear selection</button></div>`;
+      <div class="row" style="margin-top:6px"><button class="small" id="mUngroup">Remove from groups</button><button class="small" id="mInit">Add each to initiative</button><button class="small" id="mClear">Clear selection</button></div>
+      <div class="row" style="margin-top:6px"><button class="small" id="mCopy">Copy tokens</button><button class="small" id="mDup">Duplicate</button><span class="muted" style="font-size:12px">Ctrl+C / Ctrl+V / Ctrl+D</span></div>`;
     $("mNew").onclick=()=>{ newGroup(ui.sel); commit(); renderAll(); };
     $("mAdd").onchange=e=>{ const g=grp(e.target.value); if(!g) return; removeFromGroups(ui.sel); g.members=g.members.concat(ui.sel); ui.activeGroup=g.id; commit(); renderAll(); };
     $("mPM").onclick=()=>{ setPlayerMove(ui.sel.map(tok).filter(Boolean),true); commit(); renderAll(); };
@@ -1118,6 +1120,7 @@ function renderSel(){
     $("mUngroup").onclick=()=>{ removeFromGroups(ui.sel); commit(); renderAll(); };
     $("mInit").onclick=()=>{ ui.sel.forEach(id=>{ const t=tok(id); if(!S.init.some(e=>e.ref===id)) S.init.push({id:uid(),kind:t.kind==="party"?"pc":"token",ref:id,name:t.name,roll:""}); }); commit(); renderInit(); };
     $("mClear").onclick=()=>{ ui.sel=[]; renderAll(); };
+    $("mCopy").onclick=()=>copyTokens(); $("mDup").onclick=()=>{ copyTokens(); pasteTokens(); };
     $("mEnc").onchange=e=>{ if(e.target.value) addToEnc(e.target.value,ui.sel.slice()); };
     return;
   }
@@ -1150,7 +1153,7 @@ function renderSel(){
       <button class="small" id="sDisg">${t.disguise?"Remove disguise":"Disguise"}</button>
       <button class="small" id="sInit">${gp?"Add its group to initiative":"Add to initiative"}</button>
       <button class="small" id="sPreset">Save as preset</button>
-      <button class="small" id="sDel" style="color:var(--danger)">Remove</button>
+      <button class="small" id="sCopy">Copy</button><button class="small" id="sDup">Duplicate</button><button class="small" id="sDel" style="color:var(--danger)">Remove</button>
     </div>`;
   $("sName").onchange=e=>{ t.name=e.target.value.trim()||t.name; commit(); renderAll(); };
   $("sLabel").onchange=e=>{ t.label=(e.target.value.trim()||t.label).slice(0,4); commit(); renderBoard(); };
@@ -1187,6 +1190,7 @@ function renderSel(){
   $("sDisg").onclick=()=>{ t.disguise=!t.disguise; commit(); renderAll(); };
   $("sInit").onclick=()=>{ if(gp){ if(!S.init.some(e=>e.ref===gp.id)) S.init.push({id:uid(),kind:"group",ref:gp.id,name:gp.name,roll:""}); }
     else if(!S.init.some(e=>e.ref===t.id)) S.init.push({id:uid(),kind:t.kind==="party"?"pc":"token",ref:t.id,name:t.name,roll:""}); commit(); renderInit(); };
+  $("sCopy").onclick=()=>copyTokens([t.id]); $("sDup").onclick=()=>{ copyTokens([t.id]); pasteTokens(); };
   $("sDel").onclick=()=>{ removeFromGroups([t.id]); S.init=S.init.filter(e=>e.ref!==t.id); S.tokens=S.tokens.filter(x=>x.id!==t.id); ui.sel=[]; commit(); renderAll(); };
 }
 
@@ -1470,16 +1474,17 @@ function visUI(){
 document.getElementById("partyVis").onclick=()=>{ const party=S.tokens.filter(t=>t.kind==="party"), all=party.every(t=>t.vision); party.forEach(t=>t.vision=!all); commit(); renderAll(); };
 document.getElementById("sightSel").onchange=e=>{ S.sight=parseInt(e.target.value,10); commit(); renderAll(); };
 function renderAreas(){
+  const cfb=document.getElementById("crawlFound"); if(cfb){ const hid=areasOf(S).filter(a=>a.hid), on=hid.length&&hid.every(a=>(S.found||[]).includes(a.id)); cfb.textContent=on?"Hide The Crawl again":"Find The Crawl (sight only)"; cfb.classList.toggle("primary",!!on); }
   const box=document.getElementById("areaList"); if(!box) return; box.innerHTML="";
   const rev=new Set(S.revealed||[]);
   areasOf(S).forEach(a=>{ const lab=document.createElement("label"); lab.className="row"; lab.style.gap="6px"; lab.style.fontSize="14px";
-    lab.innerHTML=`<input type="checkbox" ${rev.has(a.id)?"checked":""}><b style="min-width:2.2em">${a.id}</b><span>${esc(a.name)}${a.hid?" <span class='kind'>hidden</span>":""}</span>`;
+    lab.innerHTML=`<input type="checkbox" ${rev.has(a.id)?"checked":""}><b style="min-width:2.2em">${a.id}</b><span>${esc(a.name)}${a.hid?((S.found||[]).includes(a.id)?" <span class='kind'>found: by sight</span>":" <span class='kind'>hidden</span>"):""}</span>`;
     lab.querySelector("input").onchange=e=>{ const r=new Set(S.revealed||[]); if(e.target.checked) r.add(a.id); else r.delete(a.id); S.revealed=[...r]; commit(); renderAll(); };
     box.appendChild(lab); });
 }
 document.getElementById("revAll").onclick=()=>{ S.revealed=areasOf(S).map(a=>a.id); commit(); renderAll(); };
 document.getElementById("forgetSeen").onclick=()=>{ delete S.explored; delete S.seenAreas; (S.draws||[]).forEach(d=>delete d.seen); (S.env||[]).forEach(z=>delete z.seen); lastJSON=""; commit(); renderAll(); };
-document.getElementById("hideAll").onclick=()=>{ S.revealed=["1"]; S.paint=[]; delete S.explored; delete S.seenAreas; commit(); renderAll(); };
+document.getElementById("hideAll").onclick=()=>{ S.revealed=["1"]; S.paint=[]; delete S.found; delete S.explored; delete S.seenAreas; commit(); renderAll(); };
 function renderSetup(){
   const leg=document.getElementById("legendX");
   const items = MODE==="dm" ? ((S.setup&&S.setup.legend)||[]) : (S.legend||[]).map(x=>[x,false]);
@@ -1854,6 +1859,40 @@ document.getElementById("frameBtn").onclick=()=>{ ui.frame=!ui.frame; renderBoar
 applyZoom(); renderAll(); updateUndo();
 if (MODE==="dm") setStatus(LIVE ? "" : "Offline: saved in this browser");
 if (LIVE && !PREVIEW) startLive();
+
+// ---- copy / paste tokens ----
+const CLIPKEY="dc-token-clip";
+function readClip(){ try{ return JSON.parse(localStorage.getItem(CLIPKEY)||"null"); }catch(e){ return window.__clip||null; } }
+let lastPt=null;
+svg.addEventListener("pointermove",e=>{ const p=svgPoint(e); lastPt={x:(p.x-OX)/U,y:(p.y-OY)/U}; });
+svg.addEventListener("pointerleave",()=>{ lastPt=null; });
+function copyTokens(ids){
+  const ts=(ids||ui.sel).map(tok).filter(Boolean); if(!ts.length) return;
+  const data=JSON.parse(JSON.stringify(ts)); window.__clip=data;
+  try{ localStorage.setItem(CLIPKEY,JSON.stringify(data)); }catch(e){}
+  setStatus(ts.length+(ts.length>1?" tokens":" token")+" copied. Ctrl+V pastes at the cursor."); renderSel();
+}
+function pasteTokens(){
+  const clip=readClip()||window.__clip; if(!clip||!clip.length) return;
+  const cx=clip.reduce((s,t)=>s+t.x,0)/clip.length, cy=clip.reduce((s,t)=>s+t.y,0)/clip.length;
+  const at=lastPt||{x:cx+10,y:cy+10}, ids=[];
+  clip.forEach(t=>{ const n=JSON.parse(JSON.stringify(t)); n.id=uid();
+    n.x=Math.round((at.x+(t.x-cx))*2)/2; n.y=Math.round((at.y+(t.y-cy))*2)/2;
+    if (n.max) n.hp=n.max; n.dead=false; S.tokens.push(n); ids.push(n.id); });
+  ui.sel=ids; ui.selCrystal=null; commit(); renderAll();
+  setStatus(ids.length+(ids.length>1?" tokens":" token")+" pasted");
+}
+document.addEventListener("keydown",e=>{
+  if (MODE!=="dm" || e.target.closest("input,textarea,select") || !(e.ctrlKey||e.metaKey) || e.shiftKey || e.altKey) return;
+  const k=e.key.toLowerCase();
+  if (k==="c" && ui.sel.length){ if (String(window.getSelection?window.getSelection():"")) return; e.preventDefault(); copyTokens(); }
+  else if (k==="v" && (readClip()||window.__clip)){ e.preventDefault(); pasteTokens(); }
+  else if (k==="d" && ui.sel.length){ e.preventDefault(); copyTokens(); pasteTokens(); }
+});
+
+// ---- hidden paths found: shown by sight only ----
+document.getElementById("crawlFound").onclick=()=>{ const hid=areasOf(S).filter(a=>a.hid).map(a=>a.id), f=new Set(S.found||[]), all=hid.every(id=>f.has(id));
+  S.found = all ? [] : hid; commit(); renderAll(); };
 })();
 </script>
 </body>

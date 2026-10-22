@@ -558,7 +558,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-14a";
+const APP_VER = "2026-10-22a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -841,7 +841,7 @@ function renderSel(){
     $("cDead").onclick=()=>{ c.dead=!c.dead; if(!c.dead&&c.hp===0)c.hp=1; commit(); renderAll(); };
     return;
   }
-  if (!ui.sel.length){ body.innerHTML=`<p class="muted" style="margin:0">Click a token to see its HP, size, and group. Shift-click (or turn on Multi-select) to pick several and group them.</p>`; return; }
+  if (!ui.sel.length){ body.innerHTML=`<p class="muted" style="margin:0">Click a token to see its HP, size, and group. Shift-click (or turn on Multi-select) to pick several and group them. Ctrl+C / Ctrl+V copies and pastes tokens (also between the two maps).</p>${(readClip()||window.__clip)?`<div class="row" style="margin-top:6px"><button class="small" id="sPaste">Paste ${(readClip()||window.__clip).length} copied token${(readClip()||window.__clip).length>1?"s":""}</button></div>`:""}`; if($("sPaste")) $("sPaste").onclick=()=>pasteTokens(); return; }
   if (ui.sel.length>1){
     const ts=ui.sel.map(tok).filter(Boolean);
     body.innerHTML=`<div><strong>${ts.length} tokens selected</strong></div>
@@ -850,7 +850,8 @@ function renderSel(){
         <select id="mAdd" class="grow" aria-label="Add to group"><option value="">Add to a group…</option>${S.groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join("")}</select></div>
       <div class="row" style="margin-top:6px"><button class="small" id="mPM">Let players move these</button><button class="small" id="mPMoff">Lock from players</button></div>
       <div class="row" style="margin-top:6px">${encSelectHTML("mEnc")}</div>
-      <div class="row" style="margin-top:6px"><button class="small" id="mUngroup">Remove from groups</button><button class="small" id="mInit">Add each to initiative</button><button class="small" id="mClear">Clear selection</button></div>`;
+      <div class="row" style="margin-top:6px"><button class="small" id="mUngroup">Remove from groups</button><button class="small" id="mInit">Add each to initiative</button><button class="small" id="mClear">Clear selection</button></div>
+      <div class="row" style="margin-top:6px"><button class="small" id="mCopy">Copy tokens</button><button class="small" id="mDup">Duplicate</button><span class="muted" style="font-size:12px">Ctrl+C / Ctrl+V / Ctrl+D</span></div>`;
     $("mNew").onclick=()=>{ newGroup(ui.sel); commit(); renderAll(); };
     $("mAdd").onchange=e=>{ const g=grp(e.target.value); if(!g) return; removeFromGroups(ui.sel); g.members=g.members.concat(ui.sel); ui.activeGroup=g.id; commit(); renderAll(); };
     $("mPM").onclick=()=>{ setPlayerMove(ui.sel.map(tok).filter(Boolean),true); commit(); renderAll(); };
@@ -858,6 +859,7 @@ function renderSel(){
     $("mUngroup").onclick=()=>{ removeFromGroups(ui.sel); commit(); renderAll(); };
     $("mInit").onclick=()=>{ ui.sel.forEach(id=>{ const t=tok(id); if(!S.init.some(e=>e.ref===id)) S.init.push({id:uid(),kind:t.kind==="party"?"pc":"token",ref:id,name:t.name,roll:""}); }); commit(); renderInit(); };
     $("mClear").onclick=()=>{ ui.sel=[]; renderAll(); };
+    $("mCopy").onclick=()=>copyTokens(); $("mDup").onclick=()=>{ copyTokens(); pasteTokens(); };
     $("mEnc").onchange=e=>{ if(e.target.value) addToEnc(e.target.value,ui.sel.slice()); };
     return;
   }
@@ -888,7 +890,7 @@ function renderSel(){
       <button class="small" id="sDisg">${t.disguise?"Remove disguise":"Disguise"}</button>
       <button class="small" id="sInit">${gp?"Add its group to initiative":"Add to initiative"}</button>
       <button class="small" id="sPreset">Save as preset</button>
-      <button class="small" id="sDel" style="color:var(--danger)">Remove</button>
+      <button class="small" id="sCopy">Copy</button><button class="small" id="sDup">Duplicate</button><button class="small" id="sDel" style="color:var(--danger)">Remove</button>
     </div>`;
   $("sName").onchange=e=>{ t.name=e.target.value.trim()||t.name; commit(); renderAll(); };
   $("sLabel").onchange=e=>{ t.label=(e.target.value.trim()||t.label).slice(0,4); commit(); renderBoard(); };
@@ -923,6 +925,7 @@ function renderSel(){
   $("sDisg").onclick=()=>{ t.disguise=!t.disguise; commit(); renderAll(); };
   $("sInit").onclick=()=>{ if(gp){ if(!S.init.some(e=>e.ref===gp.id)) S.init.push({id:uid(),kind:"group",ref:gp.id,name:gp.name,roll:""}); }
     else if(!S.init.some(e=>e.ref===t.id)) S.init.push({id:uid(),kind:t.kind==="party"?"pc":"token",ref:t.id,name:t.name,roll:""}); commit(); renderInit(); };
+  $("sCopy").onclick=()=>copyTokens([t.id]); $("sDup").onclick=()=>{ copyTokens([t.id]); pasteTokens(); };
   $("sDel").onclick=()=>{ removeFromGroups([t.id]); S.init=S.init.filter(e=>e.ref!==t.id); S.tokens=S.tokens.filter(x=>x.id!==t.id); ui.sel=[]; commit(); renderAll(); };
 }
 
@@ -1561,6 +1564,36 @@ if (MODE==="player"){
 applyZoom(); renderAll(); updateUndo();
 if (MODE==="dm") setStatus(LIVE ? "" : "Offline: saved in this browser");
 if (LIVE && !PREVIEW) startLive();
+
+// ---- copy / paste tokens ----
+const CLIPKEY="dc-token-clip";
+function readClip(){ try{ return JSON.parse(localStorage.getItem(CLIPKEY)||"null"); }catch(e){ return window.__clip||null; } }
+let lastPt=null;
+svg.addEventListener("pointermove",e=>{ const p=svgPoint(e); lastPt={x:(p.x-OX)/U,y:(p.y-OY)/U}; });
+svg.addEventListener("pointerleave",()=>{ lastPt=null; });
+function copyTokens(ids){
+  const ts=(ids||ui.sel).map(tok).filter(Boolean); if(!ts.length) return;
+  const data=JSON.parse(JSON.stringify(ts)); window.__clip=data;
+  try{ localStorage.setItem(CLIPKEY,JSON.stringify(data)); }catch(e){}
+  setStatus(ts.length+(ts.length>1?" tokens":" token")+" copied. Ctrl+V pastes at the cursor."); renderSel();
+}
+function pasteTokens(){
+  const clip=readClip()||window.__clip; if(!clip||!clip.length) return;
+  const cx=clip.reduce((s,t)=>s+t.x,0)/clip.length, cy=clip.reduce((s,t)=>s+t.y,0)/clip.length;
+  const at=lastPt||{x:cx+10,y:cy+10}, ids=[];
+  clip.forEach(t=>{ const n=JSON.parse(JSON.stringify(t)); n.id=uid();
+    n.x=Math.round((at.x+(t.x-cx))*2)/2; n.y=Math.round((at.y+(t.y-cy))*2)/2;
+    if (n.max) n.hp=n.max; n.dead=false; S.tokens.push(n); ids.push(n.id); });
+  ui.sel=ids; ui.selCrystal=null; commit(); renderAll();
+  setStatus(ids.length+(ids.length>1?" tokens":" token")+" pasted");
+}
+document.addEventListener("keydown",e=>{
+  if (MODE!=="dm" || e.target.closest("input,textarea,select") || !(e.ctrlKey||e.metaKey) || e.shiftKey || e.altKey) return;
+  const k=e.key.toLowerCase();
+  if (k==="c" && ui.sel.length){ if (String(window.getSelection?window.getSelection():"")) return; e.preventDefault(); copyTokens(); }
+  else if (k==="v" && (readClip()||window.__clip)){ e.preventDefault(); pasteTokens(); }
+  else if (k==="d" && ui.sel.length){ e.preventDefault(); copyTokens(); pasteTokens(); }
+});
 })();
 </script>
 </body>
