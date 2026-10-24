@@ -204,7 +204,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
     <span id="decoTools" hidden><button id="decoRot">Rotate</button> <button id="decoBig">Bigger</button> <button id="decoSmall">Smaller</button> <button id="decoDel">Delete</button></span>
     <span class="sep"></span>
     <button id="addTokBtn">Add token</button>
-    <button id="setupBtn">Load setup file</button><input type="file" id="setupFile" accept=".json,application/json" hidden>
+    <button id="setupBtn">Load setup or backup file</button> <button id="backupBtn">Download board backup</button><input type="file" id="setupFile" accept=".json,application/json" hidden>
     <button id="saveCpBtn">Save checkpoint</button>
     <button id="resetBtn">Reset map</button>
     <button id="clearCpBtn" hidden>Clear checkpoint</button>
@@ -335,7 +335,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
 (function(){
 "use strict";
 const NS = "http://www.w3.org/2000/svg";
-const OX = 20, OY = 20, U = 1, ROOM_W = 1000, ROOM_H = 1300;
+const OX = 20, OY = 20, U = 1, ROOM_W = 1000, ROOM_H = 2200;
 const STORE_KEY = "arnicite-mines-map-v1";
 const TAB = Math.random().toString(36).slice(2);
 const FONT = '"Comic Sans MS","Comic Sans","Comic Neue","Chalkboard SE",cursive';
@@ -594,7 +594,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-23b";
+const APP_VER = "2026-10-24a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -796,6 +796,9 @@ function floorMap(st){
       if (sh.t==="p"){ g.lineWidth=sh.w; sh.pts.forEach(([x,y],k)=>k?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); }
       else if (sh.t==="e"){ g.ellipse(sh.cx,sh.cy,sh.rx,sh.ry,0,0,Math.PI*2); g.fill(); }
       else { g.rect(sh.x,sh.y,sh.w,sh.h); g.fill(); } }); });
+  g.globalCompositeOperation="destination-out";
+  use.forEach(a=>(a.pillars||[]).forEach(([x,y,r])=>{ g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill(); }));
+  g.globalCompositeOperation="source-over";
   floorCache={key, use, d:g.getImageData(0,0,ROOM_W,ROOM_H).data};
   return floorCache;
 }
@@ -908,14 +911,17 @@ function drawMines(defs){
   const world=el("g",dm?{}:{mask:"url(#vismask)"},svg);
   { const g=el("g",{},world); el("rect",{x:fx(0),y:fy(0),width:ROOM_W*U,height:80*U,rx:10,fill:"#97C459"},g);
     for(let i=0;i<14;i++){ el("circle",{cx:fx(30+i*72),cy:fy(28),r:12,fill:"#3B6D11"},g); el("circle",{cx:fx(52+i*72),cy:fy(58),r:10,fill:"#27500A"},g); } }
-  const layers=[el("g",{},world),el("g",{},world),el("g",{},world)];
+  const layers=[el("g",{},world),el("g",{},world),el("g",{},world),el("g",{},world),el("g",{},world)], STRIPE=layers[4], WATER=layers[2], TOP=layers[3];
   areasOf(S).filter(a=>!a.forest&&(dm||!a.hid||rev.has(a.id)||areaPainted(a))).forEach(a=>{
     const hd=a.hid&&!(S.found||[]).includes(a.id), f=hd?HIDF:FLOOR;
+    const L0=a.island?TOP:layers[0], L1=a.island?TOP:layers[1];
     a.shapes.forEach(sh=>{
-      if (sh.t==="p"){ shapeEl(sh,layers[0],{p:{stroke:EDGE,"stroke-width":(sh.w+10)*U}}); shapeEl(sh,layers[1],{p:{stroke:a.lair?"#E6DCC6":f,"stroke-width":sh.w*U}}); }
-      else { shapeEl(sh,layers[0],{s:{fill:"none",stroke:a.lair?"#2E2A35":EDGE,"stroke-width":a.lair?8:6}}); shapeEl(sh,layers[1],{s:{fill:a.lair?"#E6DCC6":f}}); }
+      if (sh.t==="p"){ shapeEl(sh,L0,{p:{stroke:EDGE,"stroke-width":(sh.w+10)*U}}); shapeEl(sh,L1,{p:{stroke:a.lair?"#E6DCC6":f,"stroke-width":sh.w*U}}); }
+      else { shapeEl(sh,L1,{s:{fill:a.lair?"#E6DCC6":f,stroke:a.island?EDGE:"none","stroke-width":a.island?3:0}}); if(!a.island) shapeEl(sh,L0,{s:{fill:"none",stroke:a.lair?"#2E2A35":EDGE,"stroke-width":a.lair?8:6}}); }
     });
-    if (a.stripe) a.shapes.filter(sh=>sh.t==="p").forEach(sh=>shapeEl(sh,layers[2],{p:{stroke:a.stripe,"stroke-width":3,opacity:0.75,"stroke-dasharray":hd?"6 8":"none"}}));
+    (a.water||[]).forEach(sh=>shapeEl(sh,WATER,{s:{fill:"#4F7E9B",stroke:"#3E6680","stroke-width":2}}));
+    (a.pillars||[]).forEach(([x,y,r])=>el("circle",{cx:fx(x),cy:fy(y),r:r*U,fill:"#5B5347",stroke:EDGE,"stroke-width":2},TOP));
+    if (a.stripe) a.shapes.filter(sh=>sh.t==="p").forEach(sh=>shapeEl(sh,STRIPE,{p:{stroke:a.stripe,"stroke-width":3,opacity:0.75,"stroke-dasharray":hd?"6 8":"none"}}));
   });
   let gd=""; for(let x=10;x<ROOM_W;x+=10) gd+=`M${fx(x)} ${fy(0)}V${fy(ROOM_H)}`; for(let y=10;y<ROOM_H;y+=10) gd+=`M${fx(0)} ${fy(y)}H${fx(ROOM_W)}`;
   const gridG=el("g",{},world); el("path",{d:gd,stroke:"#000","stroke-opacity":0.08,"stroke-width":0.5,fill:"none"},gridG);
@@ -926,7 +932,7 @@ function drawMines(defs){
   drawEnv(world); drawDraws(world);
   if (dm){ buildVisMask(defs,"fogmask","black","white","#8c8c8c");
     el("rect",{x:0,y:0,width:ROOM_W*U+2*OX,height:ROOM_H*U+2*OY,fill:"#1E1A15",opacity:0.55,mask:"url(#fogmask)","pointer-events":"none"},svg); }
-  areasOf(S).forEach(a=>{ const [tx,ty]=a.tag; const seen=dm ? (rev.has(a.id)||paintVisibleAt(tx,ty)||tagInSight(visPolys(),tx,ty)) : !!a.seen;
+  areasOf(S).forEach(a=>{ if (a.notag) return; const [tx,ty]=a.tag; const seen=dm ? (rev.has(a.id)||paintVisibleAt(tx,ty)||tagInSight(visPolys(),tx,ty)) : !!a.seen;
     if (!dm && !seen) return;
     if (dm && ui.hideLabels) return;
     const g=el("g",{opacity:(dm&&!seen)?0.6:1},svg); const lbl=dm?a.id:a.name;
@@ -1464,7 +1470,7 @@ document.getElementById("newCancel").onclick=()=>{ addCard.hidden=true; };
 document.getElementById("newGo").onclick=()=>{
   const v=id=>document.getElementById(id).value;
   const label=(v("newLabel").trim()||"?").slice(0,4), name=v("newName").trim()||label, kind=v("newKind"), hp=parseInt(v("newHp"),10), size=5;
-  const t={id:uid(),label,name,kind,x:500,y:1150,size,hp:hp>0?hp:null,max:hp>0?hp:null,dead:false,dash:false};
+  const t={id:uid(),label,name,kind,x:500,y:2050,size,hp:hp>0?hp:null,max:hp>0?hp:null,dead:false,dash:false};
   if (v("newShape")) t.shape=v("newShape");
   applyDims(t,t.shape||"",k=>parseFloat(v("nd"+k)));
   S.tokens.push(t); ui.sel=[t.id]; ui.selCrystal=null;
@@ -1546,9 +1552,14 @@ function renderSetup(){
   sb.title=S.setup?"Replace the private setup data stored with this board":"Load your private setup file (kept off the website)";
 }
 document.getElementById("setupBtn").onclick=()=>document.getElementById("setupFile").click();
+document.getElementById("backupBtn").onclick=()=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:"application/json"}));
+  a.download="arnicite-mines-board-backup-"+new Date().toISOString().slice(0,10)+".json"; document.body.appendChild(a); a.click(); a.remove(); setStatus("Board backup downloaded."); };
 document.getElementById("setupFile").onchange=async e=>{
   const f=e.target.files[0]; e.target.value=""; if(!f) return;
   let d; try { d=JSON.parse(await f.text()); } catch(err){ setStatus("That file isn't a setup file."); return; }
+  if (d && d.v===2 && Array.isArray(d.tokens) && d.setup && d.setup.board===STORE_KEY){
+    S=d; S.notes=(d.notes||[]).concat([{id:uid(),text:"Board restored from a backup file.",round:S.round,at:Date.now()}]);
+    commit(); pruneSelection(); renderAll(); setStatus("Board restored from the backup file. Undo puts the previous board back."); return; }
   if (!d || d.board!==STORE_KEY){ setStatus("That setup file is for a different map."); return; }
   const empty=!S.tokens.length&&!S.crystals.length;
   if (empty){ const n=shippedState(d); n.notes=S.notes; n.scratch=S.scratch; if(S.checkpoint) n.checkpoint=S.checkpoint; S=n; }
