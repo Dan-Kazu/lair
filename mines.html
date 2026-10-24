@@ -594,7 +594,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-24a";
+const APP_VER = "2026-10-24b";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -915,11 +915,12 @@ function drawMines(defs){
   areasOf(S).filter(a=>!a.forest&&(dm||!a.hid||rev.has(a.id)||areaPainted(a))).forEach(a=>{
     const hd=a.hid&&!(S.found||[]).includes(a.id), f=hd?HIDF:FLOOR;
     const L0=a.island?TOP:layers[0], L1=a.island?TOP:layers[1];
+    if (a.island) a.shapes.filter(sh=>sh.t==="e").forEach(sh=>{ el("ellipse",{cx:fx(sh.cx),cy:fy(sh.cy),rx:(sh.rx+6)*U,ry:(sh.ry+6)*U,fill:"#9DB3A6",opacity:0.7},TOP); el("ellipse",{cx:fx(sh.cx),cy:fy(sh.cy),rx:(sh.rx+2.5)*U,ry:(sh.ry+2.5)*U,fill:"#C8B98F"},TOP); });
     a.shapes.forEach(sh=>{
       if (sh.t==="p"){ shapeEl(sh,L0,{p:{stroke:EDGE,"stroke-width":(sh.w+10)*U}}); shapeEl(sh,L1,{p:{stroke:a.lair?"#E6DCC6":f,"stroke-width":sh.w*U}}); }
       else { shapeEl(sh,L1,{s:{fill:a.lair?"#E6DCC6":f,stroke:a.island?EDGE:"none","stroke-width":a.island?3:0}}); if(!a.island) shapeEl(sh,L0,{s:{fill:"none",stroke:a.lair?"#2E2A35":EDGE,"stroke-width":a.lair?8:6}}); }
     });
-    (a.water||[]).forEach(sh=>shapeEl(sh,WATER,{s:{fill:"#4F7E9B",stroke:"#3E6680","stroke-width":2}}));
+    if ((a.water||[]).length) drawWater(a,WATER,defs);
     (a.pillars||[]).forEach(([x,y,r])=>el("circle",{cx:fx(x),cy:fy(y),r:r*U,fill:"#5B5347",stroke:EDGE,"stroke-width":2},TOP));
     if (a.stripe) a.shapes.filter(sh=>sh.t==="p").forEach(sh=>shapeEl(sh,STRIPE,{p:{stroke:a.stripe,"stroke-width":3,opacity:0.75,"stroke-dasharray":hd?"6 8":"none"}}));
   });
@@ -941,6 +942,39 @@ function drawMines(defs){
     const t=el("text",{x:fx(tx),y:fy(ty)+0.5,"text-anchor":"middle","dominant-baseline":"central","font-family":FONT,"font-size":11,"font-weight":700,fill:"#FFFFFF"},g); t.textContent=lbl;
     const tt=el("title",{},g); tt.textContent=a.id+" · "+a.name+(!seen?" (hidden from players)":""); });
   if (ui.paint && ui.brushAt && !(ui.shape==="line"&&painting)) brushPreview(ui.brushAt,ui.paint==="r"?"#9FE1CB":"#F09595");
+}
+// lake (pale glowing mana): shallow rim, bright core, soft ripples and glints, one merged outline
+function drawWater(a,parent,defs){
+  const W=a.water, id="wclip-"+a.id.replace(/[^\w-]/g,"");
+  const E=(sh,k,add,attrs,p)=>el("ellipse",Object.assign({cx:fx(sh.cx),cy:fy(sh.cy),rx:Math.max(1,sh.rx*k+add)*U,ry:Math.max(1,sh.ry*k+add)*U},attrs),p);
+  if (!defs.querySelector("#"+id)){ const cp=el("clipPath",{id},defs); W.forEach(sh=>E(sh,1,0,{},cp)); }
+  if (!defs.querySelector("#ripples")){
+    const pt=el("pattern",{id:"ripples",patternUnits:"userSpaceOnUse",width:46,height:30},defs);
+    el("path",{d:"M4 9 q5 -3.2 10 0 M27 23 q6 -3.6 12 0 M30 6 q3.5 -2.2 7 0 M10 25 q3 -1.8 6 0",stroke:"#FFFFFF","stroke-width":0.9,fill:"none","stroke-linecap":"round",opacity:0.6},pt);
+    const rg=el("radialGradient",{id:"waterdeep"},defs);
+    el("stop",{offset:"0%","stop-color":"#16354B","stop-opacity":0.75},rg); el("stop",{offset:"70%","stop-color":"#1F4862","stop-opacity":0.35},rg); el("stop",{offset:"100%","stop-color":"#2A5C7C","stop-opacity":0},rg);
+  }
+  if (!defs.querySelector("#wblur")){ const f=el("filter",{id:"wblur",x:"-30%",y:"-30%",width:"160%",height:"160%"},defs); el("feGaussianBlur",{stdDeviation:14},f); }
+  const g=el("g",{},parent);
+  const halo=el("g",{opacity:0.45,filter:"url(#wblur)"},g); W.forEach(sh=>E(sh,1,12,{fill:"#9EE6FF"},halo));
+  const rim=el("g",{},g); W.forEach(sh=>E(sh,1,6,{fill:"#A9D7DE"},rim));
+  const wet=el("g",{opacity:0.9},g); W.forEach(sh=>E(sh,1,3,{fill:"#B8EAF5"},wet));
+  const body=el("g",{},g); W.forEach(sh=>E(sh,1,0,{fill:"#8ED8EE"},body));
+  const inner=el("g",{"clip-path":`url(#${id})`},g);
+  const mid=el("g",{opacity:0.5,filter:"url(#wblur)"},inner); W.forEach(sh=>E(sh,0.75,0,{fill:"#6CC8EA"},mid));
+  const deep=el("g",{opacity:0.5,filter:"url(#wblur)"},inner); W.forEach(sh=>E(sh,0.45,0,{fill:"#C9F4FF"},deep));
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; W.forEach(sh=>{ x0=Math.min(x0,sh.cx-sh.rx); y0=Math.min(y0,sh.cy-sh.ry); x1=Math.max(x1,sh.cx+sh.rx); y1=Math.max(y1,sh.cy+sh.ry); });
+  el("rect",{x:fx(x0),y:fy(y0),width:(x1-x0)*U,height:(y1-y0)*U,fill:"url(#ripples)"},inner);
+  // a few long glints
+  let seed=7; const rnd=()=>{ seed=(seed*9301+49297)%233280; return seed/233280; };
+  for (let i=0;i<18;i++){ const sh=W[i%W.length], t=rnd()*Math.PI*2, r=Math.sqrt(rnd())*0.8, x=sh.cx+Math.cos(t)*sh.rx*r, y=sh.cy+Math.sin(t)*sh.ry*r, L=6+rnd()*10;
+    el("path",{d:`M${fx(x-L/2)} ${fy(y)} q${L/2*U} ${-2.2*U} ${L*U} 0`,stroke:"#FFFFFF","stroke-width":1.3,fill:"none","stroke-linecap":"round",opacity:0.45+rnd()*0.3},inner); }
+  // shoreline foam line on the merged edge
+  const foam=el("g",{opacity:0.55},g);
+  W.forEach((sh,i)=>{ const mid=id+"-f"+i;
+    if (!defs.querySelector("#"+mid)){ const m=el("mask",{id:mid,maskUnits:"userSpaceOnUse",x:fx(x0-20),y:fy(y0-20),width:(x1-x0+40)*U,height:(y1-y0+40)*U},defs);
+      el("rect",{x:fx(x0-20),y:fy(y0-20),width:(x1-x0+40)*U,height:(y1-y0+40)*U,fill:"white"},m); W.forEach((o,j)=>{ if(j!==i) E(o,1,-0.8,{fill:"black"},m); }); }
+    E(sh,1,0,{fill:"none",stroke:"#F2FDFF","stroke-width":1.3,"stroke-dasharray":"4 5",mask:`url(#${mid})`},foam); });
 }
 function revealedBox(){
   const rev=new Set(S.revealed||[]); let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
