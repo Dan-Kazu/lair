@@ -219,7 +219,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
         <svg id="board" viewBox="0 0 440 660" aria-label="Map of the Arnicite Mines. Drag tokens to move them."></svg>
       </div>
       <div class="legend" id="legend">
-        <span id="legendX" style="display:contents"></span><span>Grid squares = 10 ft</span><span>Zoom in to move tokens comfortably</span><span class="dm-only">Shift-click or turn on Multi-select to pick several tokens</span>
+        <span id="legendX" style="display:contents"></span><span>Grid squares = 10 ft</span><span>Pinch or Ctrl/⌘ + scroll to zoom toward the cursor · +/− keys · drag empty space (or Space + drag) to pan</span><span class="dm-only">Shift-click or turn on Multi-select to pick several tokens</span>
       </div>
     </div>
 
@@ -594,7 +594,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-24b";
+const APP_VER = "2026-10-24c";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1453,8 +1453,83 @@ document.getElementById("groupDragBtn").onclick=()=>{ ui.groupDrag=!ui.groupDrag
 document.getElementById("multiBtn").onclick=()=>{ ui.multi=!ui.multi; renderRound(); };
 document.getElementById("lockBtn").onclick=()=>{ ui.lock=!ui.lock; renderAll(); };
 function applyZoom(){ svg.style.width=(ui.zoom*100)+"%"; renderRound(); }
-document.getElementById("zoomIn").onclick=()=>{ ui.zoom=Math.min(8,+(ui.zoom+(ui.zoom>=2?0.5:0.25)).toFixed(2)); applyZoom(); };
-document.getElementById("zoomOut").onclick=()=>{ ui.zoom=Math.max(0.5,+(ui.zoom-0.25).toFixed(2)); applyZoom(); };
+// ---- zoom & pan: zoom toward the cursor / fingers, pan by dragging ----
+const boardbox=document.getElementById("boardbox");
+const ZMIN=0.5, ZMAX=10;
+function zoomLabel(){ const l=document.getElementById("zoomLbl"); if(l) l.textContent=Math.round(ui.zoom*100)+"%"; }
+function zoomTo(nz,px,py){
+  nz=Math.max(ZMIN,Math.min(ZMAX,nz)); if (Math.abs(nz-ui.zoom)<0.001) return;
+  const b=boardbox.getBoundingClientRect();
+  if (px==null){ px=b.left+boardbox.clientWidth/2; py=b.top+boardbox.clientHeight/2; }
+  const r=svg.getBoundingClientRect(), kx=(px-r.left)/r.width, ky=(py-r.top)/r.height;
+  ui.zoom=Math.round(nz*1000)/1000; svg.style.width=(ui.zoom*100)+"%";
+  const r2=svg.getBoundingClientRect();
+  boardbox.scrollLeft+=r2.left+kx*r2.width-px; boardbox.scrollTop+=r2.top+ky*r2.height-py;
+  zoomLabel(); try{ localStorage.setItem("mines-zoom",String(ui.zoom)); }catch(e){}
+}
+document.getElementById("zoomIn").onclick=()=>zoomTo(ui.zoom*1.25);
+document.getElementById("zoomOut").onclick=()=>zoomTo(ui.zoom/1.25);
+{ const l=document.getElementById("zoomLbl"); l.style.cursor="pointer"; l.title="Click to reset to 100%"; l.onclick=()=>zoomTo(1); }
+try{ ui.wheelZoom=localStorage.getItem("mines-wheel")==="zoom"; const z=parseFloat(localStorage.getItem("mines-zoom")); if(z>=ZMIN&&z<=ZMAX){ ui.zoom=z; svg.style.width=(z*100)+"%"; } }catch(e){}
+{ const wb=document.createElement("button"); wb.id="wheelBtn"; wb.className="small";
+  const lab=()=>{ wb.textContent=ui.wheelZoom?"Scroll wheel: zoom":"Scroll wheel: scroll"; wb.title="Pinch, or hold Ctrl/⌘ while scrolling, always zooms"; };
+  lab(); wb.onclick=()=>{ ui.wheelZoom=!ui.wheelZoom; lab(); try{ localStorage.setItem("mines-wheel",ui.wheelZoom?"zoom":"scroll"); }catch(e){} };
+  document.getElementById("zoomIn").after(wb); }
+boardbox.addEventListener("wheel",e=>{
+  if (!(e.ctrlKey||e.metaKey||ui.wheelZoom)) return;
+  e.preventDefault();
+  let d=e.deltaMode===1?e.deltaY*16:e.deltaMode===2?e.deltaY*400:e.deltaY;
+  d=Math.max(-80,Math.min(80,d));
+  zoomTo(ui.zoom*Math.exp(-d*(e.ctrlKey&&Math.abs(e.deltaY)<20?0.02:0.0028)),e.clientX,e.clientY);
+},{passive:false});
+// panning: players drag empty space; anyone: Space+drag, middle-drag, or one finger on empty space; two fingers pinch
+let spaceDown=false, pan=null;
+const touches=new Map();
+const toolBusy=()=>MODE==="dm"&&(ui.draw||ui.env||ui.paint||ui.place!=null||ui.decoEdit)||ui.measure;
+function startPan(e){ pan={id:e.pointerId,x:e.clientX,y:e.clientY}; boardbox.setPointerCapture(e.pointerId); boardbox.style.cursor="grabbing"; }
+boardbox.addEventListener("pointerdown",e=>{
+  if (e.pointerType==="touch"){
+    touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if (touches.size===2 && (pan || !ui.dragging)){
+      const [a,b]=[...touches.values()]; pan={pinch:true,d0:Math.hypot(a.x-b.x,a.y-b.y)||1,z0:ui.zoom,mx:(a.x+b.x)/2,my:(a.y+b.y)/2};
+      boardbox.setPointerCapture(e.pointerId); e.stopPropagation(); e.preventDefault(); return; }
+    if (touches.size>2 || ui.dragging){ e.stopPropagation(); return; }
+  }
+  const empty=!e.target.closest(".tok,.crystal");
+  const want = e.button===1 || spaceDown || (empty && !toolBusy() && (e.pointerType==="touch" || (MODE!=="dm" && e.button===0)));
+  if (!want) return;
+  e.stopPropagation(); e.preventDefault(); startPan(e);
+},true);
+boardbox.addEventListener("pointermove",e=>{
+  if (e.pointerType==="touch" && touches.has(e.pointerId)) touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (!pan) return;
+  if (pan.pinch){ if (touches.size<2) return; const [a,b]=[...touches.values()];
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    zoomTo(pan.z0*Math.hypot(a.x-b.x,a.y-b.y)/pan.d0, mx, my);
+    boardbox.scrollLeft-=mx-pan.mx; boardbox.scrollTop-=my-pan.my; pan.mx=mx; pan.my=my; e.stopPropagation(); return; }
+  if (e.pointerId!==pan.id) return;
+  boardbox.scrollLeft-=e.clientX-pan.x; boardbox.scrollTop-=e.clientY-pan.y; pan.x=e.clientX; pan.y=e.clientY; e.stopPropagation();
+},true);
+function endPan(e){
+  if (e.pointerType==="touch") touches.delete(e.pointerId);
+  if (!pan) return;
+  if (pan.pinch){ if (touches.size===1){ const [id,t]=[...touches.entries()][0]; pan={id,x:t.x,y:t.y}; } else if (!touches.size){ pan=null; boardbox.style.cursor=""; } e.stopPropagation(); return; }
+  if (e.pointerId===pan.id){ pan=null; boardbox.style.cursor=spaceDown?"grab":""; e.stopPropagation(); }
+}
+boardbox.addEventListener("pointerup",endPan,true); boardbox.addEventListener("pointercancel",endPan,true);
+boardbox.addEventListener("auxclick",e=>{ if(e.button===1) e.preventDefault(); });
+boardbox.addEventListener("mousedown",e=>{ if(e.button===1) e.preventDefault(); });
+const typing=e=>e.target.closest&&e.target.closest("input,textarea,select,[contenteditable]");
+document.addEventListener("keydown",e=>{
+  if (typing(e)) return;
+  if (e.code==="Space"){ if(!spaceDown){ spaceDown=true; boardbox.style.cursor="grab"; } e.preventDefault(); return; }
+  if (e.ctrlKey||e.metaKey||e.altKey) return;
+  if (e.key==="+"||e.key==="="){ zoomTo(ui.zoom*1.25); e.preventDefault(); }
+  else if (e.key==="-"||e.key==="_"){ zoomTo(ui.zoom/1.25); e.preventDefault(); }
+  else if (e.key==="0"){ zoomTo(1); e.preventDefault(); }
+});
+document.addEventListener("keyup",e=>{ if (e.code==="Space"){ spaceDown=false; if(!pan) boardbox.style.cursor=""; } });
+window.addEventListener("blur",()=>{ spaceDown=false; if(!pan) boardbox.style.cursor=""; });
 const resetBtn=document.getElementById("resetBtn");
 resetBtn.onclick=()=>{
   if(!ui.resetArm){ ui.resetArm=true; resetBtn.textContent="Click again to reset the map"; resetBtn.style.color="var(--danger)"; setTimeout(()=>{ ui.resetArm=false; resetBtn.style.color=""; cpButtons(); },4000); return; }
