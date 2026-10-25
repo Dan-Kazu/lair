@@ -201,8 +201,8 @@ body.player #board .tok.mvbl{cursor:grab !important}
     <button id="envClear">Clear effects</button>
     <span class="sep"></span>
     <button id="decoEditBtn">Edit map features: off</button>
-    <select id="decoAdd" aria-label="Add a map feature" hidden><option value="">Click a feature to select it</option><option value="tri">Click to add: crystal</option><option value="dia">Click to add: geode</option><option value="lamp">Click to add: lantern</option><option value="out">Click to add: smashed lantern</option></select>
-    <span id="decoTools" hidden><button id="decoRot">Rotate</button> <button id="decoBig">Bigger</button> <button id="decoSmall">Smaller</button> <button id="decoDel">Delete</button></span>
+    <select id="decoAdd" aria-label="Add a map feature" hidden><option value="">Click a feature to select it</option><option value="tri">Click to add: crystal</option><option value="dia">Click to add: geode</option><option value="lamp">Click to add: lantern</option><option value="out">Click to add: smashed lantern</option><option value="crate">Click to add: crates (3/4 cover)</option><option value="barrel">Click to add: barrel (half cover)</option><option value="rubble">Click to add: rubble (half cover)</option><option value="boulder">Click to add: boulder (3/4 cover)</option><option value="lowwall">Click to add: low wall (half cover)</option></select>
+    <span id="decoTools" hidden><button id="decoRot">Rotate</button> <button id="decoBig">Bigger</button> <button id="decoSmall">Smaller</button> <button id="decoDel">Delete</button> <select id="decoCover" aria-label="Cover this feature gives"><option value="">Cover: automatic</option><option value="0">Cover: none</option><option value="1">Cover: half (+2)</option><option value="2">Cover: three-quarters (+5)</option><option value="3">Cover: total</option></select></span>
     <span class="sep"></span>
     <button id="addTokBtn">Add token</button>
     <button id="setupBtn">Load setup or backup file</button> <button id="backupBtn">Download board backup</button><input type="file" id="setupFile" accept=".json,application/json" hidden>
@@ -672,7 +672,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-25d";
+const APP_VER = "2026-10-25e";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -2194,19 +2194,27 @@ function decoHit(d,x,y){
   return false; }
 function decoAreaAt(x,y){ const a=(typeof areaAt==="function")?areaAt(x,y):null; return a?a.id:"5"; }
 const DECO_NAME={cry:"Crystal",lamp:"Lantern",circ:"Feature",rect:"Structure",sq:"Marker",dot:"Marker"};
+const COVER_PIECES={
+  crate:()=>({t:"rect",l:7,w:7,rot:[0,10,-10,20][Math.floor(Math.random()*4)],f:"#7A5A3A",st:"#3A2A18",pl:3.5,cv:2}),
+  barrel:()=>({t:"circ",r:2.2,f:"#7A4E2A",st:"#3A2210",sw:1.2,cv:1}),
+  rubble:()=>({t:"circ",r:4.5,f:"#6E665A",st:"#3A3328",sw:1.2,cv:1}),
+  boulder:()=>({t:"circ",r:8.5,f:"#6E665A",st:"#3A3328",sw:1.4,cv:2}),
+  lowwall:()=>({t:"rect",l:14,w:2.6,rot:0,f:"#8A8072",st:"#3A3328",cv:1})};
+const COVER_WORD=["no cover","half cover","three-quarters cover","total cover"];
 function decoUI(){
   const on=!!ui.decoEdit, b=document.getElementById("decoEditBtn"); if(!b) return;
   b.textContent="Edit map features: "+(on?"on":"off"); b.classList.toggle("on",on); b.classList.toggle("primary",on);
   document.getElementById("decoAdd").hidden=!on; const tools=document.getElementById("decoTools");
   const d=on&&ui.decoSel!=null?decoList()[ui.decoSel]:null; tools.hidden=!d;
-  if (on) setStatus(d ? `${d.t==="cry"&&d.k==="dia"?"Geode":DECO_NAME[d.t]||"Feature"} selected: drag to move, or use Rotate / Bigger / Smaller / Delete (Delete key works too).` : "Editing map features: click a crystal, lantern or structure to select it.");
+  const cs=document.getElementById("decoCover"); if (cs&&d){ cs.value=d.cv!=null?String(d.cv):""; cs.hidden=d.t==="lamp"; }
+  if (on) setStatus(d ? `${d.t==="cry"&&d.k==="dia"?"Geode":DECO_NAME[d.t]||"Feature"} selected (${COVER_WORD[decoCover(d)]}): drag to move, or use Rotate / Bigger / Smaller / Delete (Delete key works too).` : "Editing map features: click a crystal, lantern or structure to select it.");
 }
 let decoDrag=null;
 svg.addEventListener("pointerdown",e=>{
   if (MODE!=="dm"||!ui.decoEdit) return; e.stopImmediatePropagation(); e.preventDefault();
   const p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U, L=decoList(), add=document.getElementById("decoAdd").value;
   if (add){ const base={area:decoAreaAt(x,y),x:Math.round(x*10)/10,y:Math.round(y*10)/10};
-    const d=add==="lamp"?Object.assign(base,{t:"lamp",r:10}):add==="out"?Object.assign(base,{t:"lamp",r:10,out:true}):Object.assign(base,{t:"cry",k:add,s:2.5,rot:add==="tri"?[0,15,-15,30,-30][Math.floor(Math.random()*5)]:0});
+    const d=add==="lamp"?Object.assign(base,{t:"lamp",r:20}):add==="out"?Object.assign(base,{t:"lamp",r:20,out:true}):COVER_PIECES[add]?Object.assign(base,COVER_PIECES[add]()):Object.assign(base,{t:"cry",k:add,s:5,rot:add==="tri"?[0,15,-15,30,-30][Math.floor(Math.random()*5)]:0});
     L.push(d); ui.decoSel=L.length-1; commit(); renderBoard(); decoUI(); return; }
   let hit=-1; for (let i=L.length-1;i>=0;i--){ if (decoHit(L[i],x,y)){ hit=i; break; } }
   ui.decoSel=hit>=0?hit:null;
@@ -2228,6 +2236,7 @@ document.getElementById("decoEditBtn").onclick=()=>{ ui.decoEdit=!ui.decoEdit; u
   if (!ui.decoEdit){ document.getElementById("decoAdd").value=""; setStatus(""); }
   renderBoard(); decoUI(); };
 document.getElementById("decoAdd").onchange=()=>{ ui.decoSel=null; renderBoard(); decoUI(); };
+document.getElementById("decoCover").onchange=e=>{ const v=e.target.value; decoChange(d=>{ if (v==="") delete d.cv; else d.cv=+v; }); };
 document.getElementById("decoRot").onclick=()=>decoChange(d=>{ d.rot=(((d.rot||0)+15)%360); });
 document.getElementById("decoBig").onclick=()=>decoChange(decoScale(1.2));
 document.getElementById("decoSmall").onclick=()=>decoChange(decoScale(1/1.2));
@@ -2433,8 +2442,45 @@ function sees(st,o,h){
     let lvl=isObj?coverOf(c):1;
     if (lvl<3){ if (o.stance==="prone"||(o.stance==="crouch"&&lvl===2)) lvl=3; else lvl=stanceAdj(lvl,h.stance); }
     cover=Math.max(cover,lvl); });
+  if (cover<3) decoCoverOn(st,o,h).forEach(lvl0=>{ let lvl=lvl0;
+    if (lvl<3){ if (o.stance==="prone"||(o.stance==="crouch"&&lvl===2)) lvl=3; else lvl=stanceAdj(lvl,h.stance); }
+    cover=Math.max(cover,lvl); });
   res.cover=cover; if (cover>=3){ res.why="total cover"; return res; }
   res.ok=true; return res;
+}
+// ---- cover from map features (crates, carts, rubble, boulders, barrels, walls) ----
+function decoCover(d){
+  if (d.cv!=null) return d.cv;
+  if (d.t==="rect"){ const m=Math.min(d.l||0,d.w||0); if (/^#E[0-9A-F]|^#EC/i.test(d.f||"")) return 0; return m>=6?2:m>=2.5?1:0; }
+  if (d.t==="circ"){ if (!d.f||d.f==="none"||/7C66A0|B08CFF/i.test(d.st||"")||/^#(4A453C|2A2230|3A3046)$/i.test(d.f)) return 0; return d.r>=8?2:d.r>=3?1:0; }
+  if (d.t==="cry") return (d.s||0)>=8?1:0;
+  return 0;
+}
+var decoIdxCache={arr:null,sig:""};
+function decoIndex(st){
+  const D=decoOf(st), sig=D.length+"|"+D.reduce((a,d)=>a+(d.x||0)+(d.y||0)*3+(d.cv||0)*7+(d.l||d.r||d.s||0)+(d.rot||0),0).toFixed(1);
+  if (decoIdxCache.arr===D && decoIdxCache.sig===sig) return decoIdxCache;
+  const B=new Map(), C=40;
+  D.forEach(d=>{ const lv=decoCover(d); if(!lv) return; const R=d.t==="rect"?Math.hypot(d.l,d.w)/2:d.t==="circ"?d.r:(d.s||0)*0.6;
+    const it={d,lv,R}; for (let gx=Math.floor((d.x-R)/C); gx<=Math.floor((d.x+R)/C); gx++) for (let gy=Math.floor((d.y-R)/C); gy<=Math.floor((d.y+R)/C); gy++){ const k=gx+","+gy; if(!B.has(k)) B.set(k,[]); B.get(k).push(it); } });
+  decoIdxCache={arr:D,sig,B,C}; return decoIdxCache;
+}
+// does the segment a->b pass through feature d? (rects are tested in their own rotated frame)
+function segHitsDeco(d,a,b){
+  if (d.t!=="rect"){ const r=d.t==="circ"?d.r:(d.s||0)*0.6; return segDist(d.x,d.y,a,b)<r*0.9; }
+  const an=-(d.rot||0)*Math.PI/180, c=Math.cos(an), s=Math.sin(an), L=p=>{ const dx=p[0]-d.x, dy=p[1]-d.y; return [dx*c-dy*s, dx*s+dy*c]; };
+  const p=L(a), q=L(b), hx=d.l/2*0.92, hy=d.w/2*0.92; let t0=0,t1=1; const dx=q[0]-p[0], dy=q[1]-p[1];
+  for (const [P,Q] of [[-dx,p[0]+hx],[dx,hx-p[0]],[-dy,p[1]+hy],[dy,hy-p[1]]]){ if (P===0){ if(Q<0) return false; continue; } const r=Q/P; if (P<0){ if(r>t1) return false; if(r>t0) t0=r; } else { if(r<t0) return false; if(r<t1) t1=r; } }
+  return t0<=t1;
+}
+function decoCoverOn(st,o,h){
+  const I=decoIndex(st), out=[], seen=new Set(), x0=Math.min(o.x,h.x), x1=Math.max(o.x,h.x), y0=Math.min(o.y,h.y), y1=Math.max(o.y,h.y);
+  for (let gx=Math.floor(x0/I.C); gx<=Math.floor(x1/I.C); gx++) for (let gy=Math.floor(y0/I.C); gy<=Math.floor(y1/I.C); gy++){
+    const L=I.B.get(gx+","+gy); if(!L) continue;
+    L.forEach(it=>{ if (seen.has(it)) return; seen.add(it); const d=it.d;
+      if (decoHit(d,h.x,h.y)||decoHit(d,o.x,o.y)) return;   // standing on it doesn't count
+      if (segHitsDeco(d,[o.x,o.y],[h.x,h.y])) out.push(it.lv); }); }
+  return out;
 }
 function effDim(o,s){ if (s.feel) return false; return (s.lv===1 && !(dvRange(o)>=s.d)) || (s.lv===0 && s.dv); }
 function ppEff(o,s){ let p=ppOf(o); if (effDim(o,s)) p-=5; if (o.distracted) p-=5; return p; }
