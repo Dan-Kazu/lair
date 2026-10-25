@@ -577,7 +577,7 @@ function playerStep(t,tx,ty){
     drag.walked+=cost;
     const rem=Math.max(0,(t.left||0)-drag.walked);
     setStatus(Math.floor(rem)+" ft of movement left"+moveNote(t,swam||(wetMap&&inWater(S,ex,ey))));
-    const ring=svg.querySelector(`.tok[data-id="${t.id}"] .mvring`); if (ring) ring.setAttribute("r",Math.max(0,rem*U));
+    const ring=svg.querySelector(`.tok[data-id="${t.id}"] .mvring`); if (ring) ring.setAttribute("r",Math.max(0,rem));
   }
   t.x=r1(ex); t.y=r1(ey);
 }
@@ -670,7 +670,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-25a";
+const APP_VER = "2026-10-25b";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1116,8 +1116,10 @@ function renderBoard(){
   S.tokens.forEach(t=>{
     if (MODE!=="dm" && t.kind!=="party" && !t.movable && !t.felt && !paintVisibleAt(t.x,t.y) && !tokenInRevealed(t) && !inSight(t.x,t.y)) return;
     const ramp = t.kind==="cart"?RAMP.cart:t.kind==="party"?RAMP.teal:t.kind==="core"?RAMP.purple:t.kind==="other"?RAMP.blue:RAMP.coral;
-    const r=rOf(t), ring=Math.max(1.5,r*0.3), gp=groupOf(t.id);
-    const g=el("g",{class:"tok"+(t.movable||t.playerMove?" mvbl":""),"data-id":t.id,transform:`translate(${fx(t.x)},${fy(t.y)})`,style:"cursor:grab"},svg);
+    // tokens are drawn at 1 unit per foot inside a group scaled to the map, so rings and badges keep their proportions
+    const r=sizeOf(t)/2, ring=Math.max(1.5,r*0.3), gp=groupOf(t.id);
+    const G=el("g",{class:"tok"+(t.movable||t.playerMove?" mvbl":""),"data-id":t.id,transform:`translate(${fx(t.x)},${fy(t.y)})`,style:"cursor:grab"},svg);
+    const g=el("g",{transform:`scale(${U})`},G);
     if (ui.activeGroup && gp && gp.id===ui.activeGroup) el("circle",{r:r+ring,fill:"none",stroke:gp.color,"stroke-width":Math.max(1.2,r*0.25)},g);
     if (isFlying(t)||(MODE!=="dm"&&t.flying)){ el("ellipse",{cx:r*0.35,cy:r*0.9,rx:r*0.95,ry:r*0.35,fill:"#000",opacity:0.22},g); el("circle",{r:r+Math.max(2.4,r*0.55),fill:"none",stroke:"#7EC8F2","stroke-width":Math.max(0.7,r*0.1),"stroke-dasharray":"1 1.6"},g); }
     if (MODE!=="dm" && ui.pSel===t.id) el("circle",{r:r+ring*0.8,fill:"none",stroke:accent,"stroke-width":Math.max(1,r*0.2),"stroke-dasharray":"2 1.5"},g);
@@ -1127,13 +1129,13 @@ function renderBoard(){
     if (t.felt){ common.fill="#B9A6E8"; common["fill-opacity"]=0.18; common.stroke="#7B62C9"; common["stroke-dasharray"]=`${Math.max(1,r*0.3)} ${Math.max(0.8,r*0.25)}`; common.opacity=0.9; }
     const rot=t.rot?{transform:`rotate(${t.rot})`}:{};
     if (t.shape==="square") el("rect",Object.assign({x:-r,y:-r,width:r*2,height:r*2,rx:r*0.25},common,rot),g);
-    else if (t.shape==="rect"){ const hl=t.len?t.len/2*U:r, hw=t.wid?t.wid/2*U:r*0.55; el("rect",Object.assign({x:-hl,y:-hw,width:hl*2,height:hw*2,rx:Math.min(hl,hw)*0.25},common,rot),g); }
-    else if (t.shape==="tri"){ const sd=sizeOf(t)*U, R=sd/Math.sqrt(3); el("path",Object.assign({d:`M0 ${-R}L${sd/2} ${R/2}L${-sd/2} ${R/2}Z`,"stroke-linejoin":"round"},common,rot),g); }
+    else if (t.shape==="rect"){ const hl=t.len?t.len/2:r, hw=t.wid?t.wid/2:r*0.55; el("rect",Object.assign({x:-hl,y:-hw,width:hl*2,height:hw*2,rx:Math.min(hl,hw)*0.25},common,rot),g); }
+    else if (t.shape==="tri"){ const sd=sizeOf(t), R=sd/Math.sqrt(3); el("path",Object.assign({d:`M0 ${-R}L${sd/2} ${R/2}L${-sd/2} ${R/2}Z`,"stroke-linejoin":"round"},common,rot),g); }
     else el("circle",Object.assign({r},common),g);
     const tx=el("text",{y:t.shape==="tri"&&!t.rot?r*0.22:0,"text-anchor":"middle","dominant-baseline":"central","font-family":FONT,"font-size":Math.min(11,r*2*0.55/Math.max(1,t.label.length*0.55)),"font-weight":700,fill:ramp.t},g); tx.textContent=t.label;
     if (gp && !(ui.activeGroup===gp.id)) el("circle",{cx:r*0.75,cy:-r*0.75,r:Math.max(1.3,r*0.28),fill:gp.color,stroke:"#fff","stroke-width":0.4},g);
     if (t.dead) el("path",{d:`M${-r*.7} ${-r*.7}L${r*.7} ${r*.7}M${r*.7} ${-r*.7}L${-r*.7} ${r*.7}`,stroke:"#A32D2D","stroke-width":Math.max(1,r*0.2)},g);
-    if (MODE!=="dm" && S.battle && t.movable && t.left!=null) el("circle",{class:"mvring",r:Math.max(0,t.left*U),fill:"#1D9E75","fill-opacity":0.06,stroke:"#1D9E75","stroke-width":1,"stroke-dasharray":"4 3","pointer-events":"none"},g);
+    if (MODE!=="dm" && S.battle && t.movable && t.left!=null) el("circle",{class:"mvring",r:Math.max(0,t.left),fill:"#1D9E75","fill-opacity":0.06,stroke:"#1D9E75","stroke-width":1,"stroke-dasharray":"4 3","pointer-events":"none"},g);
     if (t.playerMove||t.movable) el("circle",{r:r+Math.max(2,r*0.45),fill:"none",stroke:"#1D9E75","stroke-width":Math.max(0.8,r*0.12),"stroke-dasharray":"2 2"},g);
     if (MODE==="dm" && t.vision) el("circle",{cx:-r*0.75,cy:-r*0.75,r:Math.max(1.3,r*0.28),fill:"#F2C94C",stroke:"#5C4A12","stroke-width":0.4},g);
     if (MODE==="dm" && t.corrupt) el("circle",{r:r+Math.max(1.2,r*0.22),fill:"none",stroke:"#3A0F0F","stroke-width":Math.max(1.1,r*0.2)},g);
@@ -2434,7 +2436,7 @@ function checkSurprise(){ const C=combatants(S); let n=0; C.forEach(c=>{ const e
 // token decorations: hiding, stance, facing, carried light, distracted, cover badge
 function tokFx(t,g,r){
   const dm=MODE==="dm";
-  if (t.light && !t.lightOff && LIGHTS[t.light]){ const c=el("circle",{r:Math.min(LIGHTS[t.light].b,30)*U,fill:"url(#lampglow)",opacity:0.9,"pointer-events":"none"},g); g.insertBefore(c,g.firstChild); }
+  if (t.light && !t.lightOff && LIGHTS[t.light]){ const c=el("circle",{r:Math.min(LIGHTS[t.light].b,30),fill:"url(#lampglow)",opacity:0.9,"pointer-events":"none"},g); g.insertBefore(c,g.firstChild); }
   if (t.stealth){ g.setAttribute("opacity","0.6"); el("circle",{r:r+Math.max(1.8,r*0.4),fill:"none",stroke:"#9B7FE0","stroke-width":Math.max(0.6,r*0.12),"stroke-dasharray":"1.4 1.2"},g);
     if (dm||t.kind==="party"){ const s=el("text",{y:-r-Math.max(2.4,r*0.5),"text-anchor":"middle","font-family":FONT,"font-size":Math.max(2.6,Math.min(5,r*0.8)),"font-weight":700,fill:"#6B52C0"},g); s.textContent="hiding "+t.stealth; } }
   if (t.facing || (!dm && t.face!=null)){ const a=(t.face||0)*Math.PI/180, R=r+Math.max(2.2,r*0.5); el("path",{d:`M${Math.cos(a)*R} ${Math.sin(a)*R}L${Math.cos(a+0.45)*(r+0.4)} ${Math.sin(a+0.45)*(r+0.4)}L${Math.cos(a-0.45)*(r+0.4)} ${Math.sin(a-0.45)*(r+0.4)}Z`,fill:"#C99A1A"},g); }
