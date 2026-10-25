@@ -444,13 +444,18 @@ function publicView(st){
   const shownIds=new Set(pubAreas.map(a=>a.id));
   const canSee=t=>t.kind==="party"||(t.invisible ? (V.truePolys.length ? V.truePolys.some(p=>inPoly(p,t.x,t.y)) : true) && senseAt(st,"invis",t) && !envAt(st,"dm",t.x,t.y) : !hiddenByEnv(st,t)&&(t.playerMove||paintVisibleAt(t.x,t.y,st)||tokenInRevealed(t,st)||V.polys.some(p=>inPoly(p,t.x,t.y))));
   const canSee0=canSee, LIT=lightingOn(st);
-  const canSeeX=t=>{ if (t.kind==="party"||t.playerMove) return canSee0(t); if (t.stealth && !partySees(st,t)) return false; if (LIT && !t.invisible && !paintVisibleAt(t.x,t.y,st) && !tokenInRevealed(t,st)) return !hiddenByEnv(st,t)&&partySees(st,t); return canSee0(t); };
+  const felt=new Set();
+  const canSeeX=t=>{ if (t.kind==="party"||t.playerMove) return canSee0(t); const pp=partyPerceive(st,t);
+    let vis; if (LIT && !t.invisible && !paintVisibleAt(t.x,t.y,st) && !tokenInRevealed(t,st)) vis=!hiddenByEnv(st,t)&&pp.sight; else vis=canSee0(t)&&(!t.stealth||pp.sight);
+    if (vis) return true; if (pp.feel){ felt.add(t.id); return true; } return false; };
   let vcells=null; if (LIT && V.cat){ const b=new Uint8Array(GW*GH), d=new Uint8Array(GW*GH), m=new Uint8Array(GW*GH); for (let i=0;i<b.length;i++){ const c=V.cat[i]; if(c===1) b[i]=1; else if(c===2) d[i]=1; else if(c===3) m[i]=1; } vcells={b:packBits(b),d:packBits(d),m:packBits(m)}; }
   return {v:2, lighting:LIT, vcells, draws:(st.draws||[]).map(d=>(d.seen||inView(V.polys,drawPts(d)))?d:Object.assign({},d,{unseen:true})), env:(st.env||[]).map(s=>{ const o=s.vis?Object.assign({},s,{show:s.vis==="step"?!!s.found:sensedEnv(st,s)}):Object.assign({},s); if(!s.seen&&!inView(V.polys,stampPts(s))) o.unseen=true; return o; }), envSee:envSee(st), templates:(st.templates||[]).slice(), battle:!!st.battle, round:st.round, phase:st.phase, auras:st.auras, cur:st.cur, revealed:(st.revealed||[]).slice(), paint:(st.paint||[]).slice(),
     vis: V.polys, explored: st.explored||"",
     areas: pubAreas, deco: decoOf(st).filter(d=>shownIds.has(d.area)),
     legend: ((st.setup&&st.setup.legend)||[]).filter(x=>!x[1]).map(x=>x[0]),
-    tokens: st.tokens.filter(t=>!t.hidden&&canSeeX(t)).map(t=> t.disguise
+    tokens: st.tokens.filter(t=>!t.hidden&&canSeeX(t)).map(t=> felt.has(t.id)
+      ? {id:t.id,label:"",name:"Something you sense",kind:"felt",felt:true,x:t.x,y:t.y,size:sizeOf(t),shape:null,dead:false,dash:false}
+      : t.disguise
       ? {id:t.id,label:"",name:(st.setup&&st.setup.disguiseAs)||"Object",kind:"cart",x:t.x,y:t.y,size:sizeOf(t),shape:"square",dead:false,dash:false}
       : {id:t.id,label:t.label,name:t.kind==="party"?t.name:t.label,kind:t.kind,x:t.x,y:t.y,size:sizeOf(t),shape:t.shape||null,len:t.len||null,wid:t.wid||null,rot:t.rot||0,dead:!!t.dead,dash:!!t.dash,movable:!!t.playerMove&&onTurn(st,t), invis:!!t.invisible, noTerrain:!!t.noTerrain, ...pubExtra(st,t), left:st.battle&&t.playerMove&&onTurn(st,t)?moveLeft(t):null}),
     crystals: st.crystals.map(c=>({id:c.id,name:c.showName?c.name:"",showAura:!!(st.playerAuras||c.showAura),ramp:c.ramp,x:c.x,y:c.y,size:c.size,dead:!!c.dead})),
@@ -460,7 +465,7 @@ function pubInfo(t){
   const sh=t.show||{}, o={};
   if (sh.hp && t.max) o.hp=[t.hp,t.max];
   if (sh.speed){ o.speeds={walk:speedOf(t)}; if (+t.swim>0) o.speeds.swim=+t.swim; if (t.canFly) o.speeds.fly=+t.fly||speedOf(t); }
-  if (sh.senses){ const L=[]; if (t.truesight) L.push("Truesight"+(t.trueR?" "+t.trueR+" ft":"")); if (t.seeDark) L.push("Sees in darkness"+(t.darkR?" "+t.darkR+" ft":"")); if (t.seeMagic) L.push("Sees in magical darkness"+(t.magicR?" "+t.magicR+" ft":"")); if (t.tremor) L.push("Tremorsense / blindsight "+(t.tremorR||30)+" ft"); if (t.noTerrain) L.push("Ignores difficult terrain"); o.senses=L; }
+  if (sh.senses){ const L=[]; if (t.truesight) L.push("Truesight"+(t.trueR?" "+t.trueR+" ft":"")); if (t.seeDark) L.push("Sees in darkness"+(t.darkR?" "+t.darkR+" ft":"")); if (t.seeMagic) L.push("Sees in magical darkness"+(t.magicR?" "+t.magicR+" ft":"")); if (t.blind) L.push("Blindsight "+(t.blindR||30)+" ft"); if (t.tremor) L.push("Tremorsense "+(t.tremorR||30)+" ft"); if (t.noTerrain) L.push("Ignores difficult terrain"); o.senses=L; }
   if (sh.note && t.pnote) o.note=String(t.pnote).slice(0,600);
   return o;
 }
@@ -638,7 +643,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-24e";
+const APP_VER = "2026-10-24f";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1082,7 +1087,7 @@ function renderBoard(){
     if (ui.selCrystal===c.id) el("rect",{x:fx(c.x)-h-4,y:fy(c.y)-h-4,width:h*2+8,height:h*2+8,fill:"none",stroke:accent,"stroke-width":2,"stroke-dasharray":"4 3"},g);
   });
   S.tokens.forEach(t=>{
-    if (MODE!=="dm" && t.kind!=="party" && !t.movable && !paintVisibleAt(t.x,t.y) && !tokenInRevealed(t) && !inSight(t.x,t.y)) return;
+    if (MODE!=="dm" && t.kind!=="party" && !t.movable && !t.felt && !paintVisibleAt(t.x,t.y) && !tokenInRevealed(t) && !inSight(t.x,t.y)) return;
     const ramp = t.kind==="cart"?RAMP.cart:t.kind==="party"?RAMP.teal:t.kind==="core"?RAMP.purple:t.kind==="other"?RAMP.blue:RAMP.coral;
     const r=rOf(t), ring=Math.max(1.5,r*0.3), gp=groupOf(t.id);
     const g=el("g",{class:"tok"+(t.movable||t.playerMove?" mvbl":""),"data-id":t.id,transform:`translate(${fx(t.x)},${fy(t.y)})`,style:"cursor:grab"},svg);
@@ -1092,6 +1097,7 @@ function renderBoard(){
     if (ui.sel.includes(t.id)) el("circle",{r:r+ring*0.8,fill:"none",stroke:accent,"stroke-width":Math.max(1,r*0.2),"stroke-dasharray":"2 1.5"},g);
     const common={fill:ramp.f,stroke:ramp.s,"stroke-width":Math.max(0.6,r*0.12),opacity:t.dead?0.4:((t.hidden||t.invisible||t.invis)?0.45:1)};
     if (t.dash) common["stroke-dasharray"]=`${Math.max(1,r*0.35)} ${Math.max(0.8,r*0.25)}`;
+    if (t.felt){ common.fill="#B9A6E8"; common["fill-opacity"]=0.18; common.stroke="#7B62C9"; common["stroke-dasharray"]=`${Math.max(1,r*0.3)} ${Math.max(0.8,r*0.25)}`; common.opacity=0.9; }
     const rot=t.rot?{transform:`rotate(${t.rot})`}:{};
     if (t.shape==="square") el("rect",Object.assign({x:-r,y:-r,width:r*2,height:r*2,rx:r*0.25},common,rot),g);
     else if (t.shape==="rect"){ const hl=t.len?t.len/2*U:r, hw=t.wid?t.wid/2*U:r*0.55; el("rect",Object.assign({x:-hl,y:-hw,width:hl*2,height:hw*2,rx:Math.min(hl,hw)*0.25},common,rot),g); }
@@ -1281,7 +1287,7 @@ function renderSel(){
     <div class="row" style="margin-top:6px"><label for="sGroup" class="muted">Group</label><select id="sGroup" class="grow">${groupSelectOptions(gp?gp.id:"")}</select></div>
     ${t.kind!=="party"?`<div class="row" style="margin-top:6px"><label for="sEnc" class="muted">Encounter</label>${encSelectHTML("sEnc")}${(S.encounters||[]).filter(en=>en.members.includes(t.id)).map(en=>`<span class="chip">${esc(en.name)}</span>`).join("")}</div>`:""}
     ${t.vision?`<div class="row" style="margin-top:6px"><label for="sSight" class="muted">Sight</label><input id="sSight" type="number" min="5" step="5" value="${t.sight||""}" placeholder="${sightOf(S)} (default)" style="width:110px"> ft</div>`:""}
-    <div class="row" style="margin-top:6px;gap:10px 14px;flex-wrap:wrap;font-size:14px"><label class="row" style="gap:4px"><input type="checkbox" id="sInvis" ${t.invisible?"checked":""}>Invisible</label>${(t.kind==="party"||t.playerMove||t.vision)?`<span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sTrue" ${t.truesight?"checked":""}>Truesight</label>${t.truesight?`<input id="sTrueR" type="number" min="5" step="5" value="${t.trueR||""}" placeholder="any" style="width:58px" aria-label="Truesight range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sSeeDark" ${t.seeDark?"checked":""}>Sees in darkness</label>${t.seeDark?`<input id="sDarkR" type="number" min="5" step="5" value="${t.darkR||""}" placeholder="any" style="width:58px" aria-label="Sees in darkness range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sSeeMagic" ${t.seeMagic?"checked":""}>Sees in magical darkness</label>${t.seeMagic?`<input id="sMagicR" type="number" min="5" step="5" value="${t.magicR||""}" placeholder="any" style="width:58px" aria-label="Sees in magical darkness range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sTremor" ${t.tremor?"checked":""}>Tremorsense / blindsight</label>${t.tremor?`<input id="sTremorR" type="number" min="5" step="5" value="${t.tremorR||"30"}" placeholder="any" style="width:58px" aria-label="Tremorsense / blindsight range in feet">ft`:""}</span><label class="row" style="gap:4px"><input type="checkbox" id="sNoTerr" ${t.noTerrain?"checked":""}>Ignores difficult terrain</label>`:""}</div>
+    <div class="row" style="margin-top:6px;gap:10px 14px;flex-wrap:wrap;font-size:14px"><label class="row" style="gap:4px"><input type="checkbox" id="sInvis" ${t.invisible?"checked":""}>Invisible</label>${(t.kind==="party"||t.playerMove||t.vision)?`<span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sTrue" ${t.truesight?"checked":""}>Truesight</label>${t.truesight?`<input id="sTrueR" type="number" min="5" step="5" value="${t.trueR||""}" placeholder="any" style="width:58px" aria-label="Truesight range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sSeeDark" ${t.seeDark?"checked":""}>Sees in darkness</label>${t.seeDark?`<input id="sDarkR" type="number" min="5" step="5" value="${t.darkR||""}" placeholder="any" style="width:58px" aria-label="Sees in darkness range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sSeeMagic" ${t.seeMagic?"checked":""}>Sees in magical darkness</label>${t.seeMagic?`<input id="sMagicR" type="number" min="5" step="5" value="${t.magicR||""}" placeholder="any" style="width:58px" aria-label="Sees in magical darkness range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sTremor" ${t.tremor?"checked":""}>Tremorsense</label>${t.tremor?`<input id="sTremorR" type="number" min="5" step="5" value="${t.tremorR||"30"}" placeholder="any" style="width:58px" aria-label="Tremorsense range in feet">ft`:""}</span><span class="row" style="gap:4px"><label class="row" style="gap:4px"><input type="checkbox" id="sBlind" ${t.blind?"checked":""}>Blindsight</label>${t.blind?`<input id="sBlindR" type="number" min="5" step="5" value="${t.blindR||"30"}" placeholder="30" style="width:58px" aria-label="Blindsight range in feet">ft`:""}</span><label class="row" style="gap:4px"><input type="checkbox" id="sNoTerr" ${t.noTerrain?"checked":""}>Ignores difficult terrain</label>`:""}</div>
     ${(t.kind==="party"||t.playerMove)?`<div class="row" style="margin-top:6px"><label for="sSwim" class="muted">Swim</label><input id="sSwim" type="number" min="0" step="5" value="${t.swim||""}" placeholder="none" title="Without a swim speed, moving through the lake costs double" style="width:64px"> ft <label class="row" style="gap:4px;margin-left:6px"><input type="checkbox" id="sCanFly" ${t.canFly?"checked":""}>Can fly</label>${t.canFly?`<input id="sFly" type="number" min="5" step="5" value="${t.fly||""}" placeholder="${speedOf(t)}" aria-label="Fly speed in feet" style="width:64px"> ft <label class="row" style="gap:4px"><input type="checkbox" id="sFlying" ${t.flying?"checked":""}>Flying now</label>`:""}</div>`:""}
     ${t.kind!=="party"?`<div class="row" style="margin-top:6px;font-size:14px"><label class="row" style="gap:4px"><input type="checkbox" id="sInspect" ${t.inspect?"checked":""}>Players can select this to see unlocked info</label></div>`:""}
     ${(t.kind==="party"||t.inspect)?`<div class="row" style="margin-top:6px;gap:8px 12px;font-size:14px"><span class="muted">Players can see:</span>${[["hp","HP"],["speed","Speeds"],["senses","Senses"],["note","Note"]].map(([k,l])=>`<label class="row" style="gap:4px"><input type="checkbox" data-show="${k}" ${(t.show||{})[k]?"checked":""}>${l}</label>`).join("")}</div>${(t.show||{}).note?`<textarea id="sPNote" rows="2" style="width:100%;margin-top:4px" placeholder="Note players see when they select this token">${esc(t.pnote||"")}</textarea>`:""}`:""}
@@ -1305,8 +1311,8 @@ function renderSel(){
   if ($("sDmg")){ $("sDmg").onclick=()=>ap(-1); $("sHeal").onclick=()=>ap(1); $("sAmt").onkeydown=e=>{ if(e.key==="Enter") ap(-1); }; }
   if ($("sTrack")) $("sTrack").onclick=()=>{ t.max=100; t.hp=100; commit(); renderSel(); };
   if ($("sSight")) $("sSight").onchange=e=>{ const v=parseInt(e.target.value,10); if(v>0) t.sight=v; else delete t.sight; commit(); renderAll(); };
-  [["sInvis","invisible"],["sTrue","truesight"],["sSeeDark","seeDark"],["sSeeMagic","seeMagic"],["sNoTerr","noTerrain"],["sTremor","tremor"]].forEach(([id,k])=>{ const c=$(id); if(c) c.onchange=e=>{ if(e.target.checked) t[k]=true; else delete t[k]; commit(); renderAll(); }; });
-  [["sTrueR","trueR"],["sDarkR","darkR"],["sMagicR","magicR"],["sTremorR","tremorR"]].forEach(([id,k])=>{ const c=$(id); if(c) c.onchange=e=>{ const v=parseInt(e.target.value,10); if(v>0) t[k]=v; else delete t[k]; commit(); renderAll(); }; });
+  [["sInvis","invisible"],["sTrue","truesight"],["sSeeDark","seeDark"],["sSeeMagic","seeMagic"],["sNoTerr","noTerrain"],["sTremor","tremor"],["sBlind","blind"]].forEach(([id,k])=>{ const c=$(id); if(c) c.onchange=e=>{ if(e.target.checked) t[k]=true; else delete t[k]; commit(); renderAll(); }; });
+  [["sTrueR","trueR"],["sDarkR","darkR"],["sMagicR","magicR"],["sTremorR","tremorR"],["sBlindR","blindR"]].forEach(([id,k])=>{ const c=$(id); if(c) c.onchange=e=>{ const v=parseInt(e.target.value,10); if(v>0) t[k]=v; else delete t[k]; commit(); renderAll(); }; });
   if ($("sSwim")) $("sSwim").onchange=e=>{ const v=parseInt(e.target.value,10); if (v>0) t.swim=v; else delete t.swim; commit(); renderAll(); };
   if ($("sFly")) $("sFly").onchange=e=>{ const v=parseInt(e.target.value,10); if (v>0) t.fly=v; else delete t.fly; commit(); renderAll(); };
   if ($("sCanFly")) $("sCanFly").onchange=e=>{ if (e.target.checked){ t.canFly=true; if(!t.fly) t.fly=speedOf(t); } else { delete t.canFly; delete t.flying; } commit(); renderAll(); };
@@ -1918,7 +1924,7 @@ function markSteps(t,x0,y0,x1,y1){
   for (let i=0;i<=n;i++){ const x=x0+(x1-x0)*i/n, y=y0+(y1-y0)*i/n; hid.forEach(s=>{ if(!s.found && inStamp(s,x,y)) s.found=true; }); }
 }
 function sensedEnv(st,s){
-  return (st.tokens||[]).some(t=>t.tremor && !t.dead && (t.kind==="party"||t.vision||t.playerMove) && Math.hypot(t.x-s.x,t.y-s.y)-stampReach(s)*0.7<=(t.tremorR||30));
+  return (st.tokens||[]).some(t=>(t.tremor||t.blind) && !t.dead && (t.kind==="party"||t.vision||t.playerMove) && Math.hypot(t.x-s.x,t.y-s.y)-stampReach(s)*0.7<=Math.max(t.tremor?(t.tremorR||30):0,t.blind?(t.blindR||30):0));
 }
 function rng(on,r,d){ return !!on && (!r || d<=r); }
 function senseAt(st,kind,t){
@@ -2339,7 +2345,23 @@ const COVER_NAME=["no cover","half cover (+2 AC)","three-quarters cover (+5 AC)"
 function stanceAdj(lvl,s){ return s==="prone"?(lvl>=1?3:0) : s==="crouch"?(lvl>=1?Math.min(3,lvl+1):0) : lvl; }
 function sightDist(st,o){ return o.sightD||(o.kind==="party"?(o.sight||sightOf(st)):sightOf(st)); }
 // can observer o see creature h's spot? returns {ok,cover,lv,dv,d,why}
+function feelOf(st,o,h,d){
+  if (o.blind && d<=(o.blindR||30) && losClear(st,o,h,d)) return "blind";
+  if (o.tremor && d<=(o.tremorR||30) && !isFlying(h) && !h.flying) return "tremor";
+  return null;
+}
+function losClear(st,o,h,d){ const n=Math.max(1,Math.ceil(d)), rh=sizeOf(h)/2, ro=sizeOf(o)/2;
+  for (let i=1;i<n;i++){ const k=i/n, x=o.x+(h.x-o.x)*k, y=o.y+(h.y-o.y)*k, dd=d*k; if (dd<ro || d-dd<rh*0.6) continue;
+    if (!ffAt(st,x,y) || obstAt(st,x,y,"sight") || envAt(st,"dm",x,y)) return false; }
+  return true; }
+// sight plus blindsight / tremorsense: {ok, sight, feel, cover, ...}
 function senses(st,o,h){
+  const d=Math.hypot(h.x-o.x,h.y-o.y), s=sees(st,o,h), feel=(o.blind||o.tremor)?feelOf(st,o,h,d):null;
+  if (s.ok){ s.sight=true; if (feel) s.feel=feel; return s; }
+  if (feel && s.why!=="total cover") return {ok:true,sight:false,feel,cover:0,lv:s.lv,dv:false,d};
+  return s;
+}
+function sees(st,o,h){
   const lf=lightFnC(st), d=Math.hypot(h.x-o.x,h.y-o.y), res={ok:false,cover:0,lv:2,dv:false,d};
   if (o.facing){ const a=Math.atan2(h.y-o.y,h.x-o.x)*180/Math.PI, df=Math.abs((((a-(o.face||0))%360)+540)%360-180); if (df>90){ res.why="behind it"; return res; } }
   const lv=lf(h.x,h.y); res.lv=lv;
@@ -2361,20 +2383,22 @@ function senses(st,o,h){
   res.cover=cover; if (cover>=3){ res.why="total cover"; return res; }
   res.ok=true; return res;
 }
-function effDim(o,s){ return (s.lv===1 && !(dvRange(o)>=s.d)) || (s.lv===0 && s.dv); }
+function effDim(o,s){ if (s.feel) return false; return (s.lv===1 && !(dvRange(o)>=s.d)) || (s.lv===0 && s.dv); }
 function ppEff(o,s){ let p=ppOf(o); if (effDim(o,s)) p-=5; if (o.distracted) p-=5; return p; }
-function knows(st,o,h,s){ if (!h.stealth) return true; if ((h.seenBy||[]).includes(o.id)||(h.foundBy||[]).includes(o.id)) return true; s=s||senses(st,o,h); return s.ok && ppEff(o,s)>=h.stealth; }
+function knows(st,o,h,s){ if (!h.stealth) return true; if ((h.seenBy||[]).includes(o.id)||(h.foundBy||[]).includes(o.id)) return true; s=s||senses(st,o,h); return s.ok && (!!s.feel || ppEff(o,s)>=h.stealth); }
 function opponents(st,h){ const sd=sideOf(h); return (st.tokens||[]).filter(o=>o!==h&&!o.dead&&sideOf(o)&&sideOf(o)!==sd); }
-function clearlySees(st,o,h){ const s=senses(st,o,h); return s.ok && s.cover===0 && !(effDim(o,s) && h.hideDim); }
+function clearlySees(st,o,h){ const s=senses(st,o,h); return s.ok && (!!s.feel || (s.cover===0 && !(effDim(o,s) && h.hideDim))); }
 function doHide(st,h,roll){ h.stealth=Math.max(1,Math.round(+roll||0)); const seen=opponents(st,h).filter(o=>clearlySees(st,o,h)); if (seen.length) h.seenBy=seen.map(o=>o.id); else delete h.seenBy; delete h.foundBy; return seen; }
 function revealTok(h){ delete h.stealth; delete h.seenBy; delete h.foundBy; }
 function doSearch(st,s,roll){ const v=Math.max(+roll||0,ppOf(s)), found=[];
   opponents(st,s).forEach(h=>{ if(!h.stealth) return; if ((h.foundBy||[]).includes(s.id)) return; const sv=senses(st,s,h); if (sv.ok && v>=h.stealth){ (h.foundBy||(h.foundBy=[])).push(s.id); found.push(h); } });
   return found; }
 // players see a monster only if a party member with vision can see its spot and (if it is hiding) notices it
-function partySees(st,t){ const src=sources(st).filter(o=>sideOf(o)==="party"); if(!src.length) return true;
-  return src.some(o=>{ const s=senses(st,o,t); return s.ok && (!t.stealth || knows(st,o,t,s)); }); }
-function bestCover(st,t){ let best=9; sources(st).filter(o=>sideOf(o)==="party").forEach(o=>{ const s=senses(st,o,t); if(s.ok) best=Math.min(best,s.cover); }); return best===9?0:best; }
+function partyPerceive(st,t){ const src=(st.tokens||[]).filter(o=>sideOf(o)==="party"&&!o.dead&&!o.hidden&&(o.vision||o.blind||o.tremor)), r={sight:false,feel:false}; if(!src.length){ r.sight=true; return r; }
+  for (const o of src){ const s=senses(st,o,t); if (!s.ok) continue; if (t.stealth && !knows(st,o,t,s)) continue; if (s.sight) r.sight=true; if (s.feel) r.feel=true; if (r.sight) break; }
+  return r; }
+function partySees(st,t){ const r=partyPerceive(st,t); return r.sight||r.feel; }
+function bestCover(st,t){ let best=9; sources(st).filter(o=>sideOf(o)==="party").forEach(o=>{ const s=senses(st,o,t); if(s.ok&&s.sight) best=Math.min(best,s.cover); }); return best===9?0:best; }
 function combatants(st){ const ids=new Set(); (st.init||[]).forEach(e=>{ if(e.kind==="group"){ const g=(st.groups||[]).find(x=>x.id===e.ref); if(g) g.members.forEach(m=>ids.add(m)); } else if (e.ref) ids.add(e.ref); });
   return (st.tokens||[]).filter(t=>ids.has(t.id)&&!t.dead&&sideOf(t)); }
 function entryToks(st,e){ if(!e) return []; if(e.kind==="group"){ const g=(st.groups||[]).find(x=>x.id===e.ref); return g?g.members.map(id=>(st.tokens||[]).find(t=>t.id===id)).filter(Boolean):[]; } const t=e.ref&&(st.tokens||[]).find(x=>x.id===e.ref); return t?[t]:[]; }
@@ -2410,7 +2434,10 @@ function stealthPanel(t){
         ${sideOf(t)==="foe"?`<label class="row" style="gap:4px"><input type="checkbox" id="stDist" ${t.distracted?"checked":""}>Distracted (−5 PP)</label>`:""}
         <label class="row" style="gap:4px"><input type="checkbox" id="stFacing" ${t.facing?"checked":""}>Has facing</label>${t.facing?`<button class="small" id="stRotL" title="Turn left">⟲</button><button class="small" id="stRotR" title="Turn right">⟳</button>`:""}
         <label class="row" style="gap:4px"><input type="checkbox" id="stDimHide" ${t.hideDim?"checked":""}>Can hide in dim light</label>
-        <label class="row" style="gap:4px"><input type="checkbox" id="stSeeInv" ${t.seeInvis?"checked":""}>Sees invisible</label></div>
+        <label class="row" style="gap:4px"><input type="checkbox" id="stSeeInv" ${t.seeInvis?"checked":""}>Sees invisible</label>
+        ${sideOf(t)==="foe"?`<label class="row" style="gap:4px"><input type="checkbox" id="stBlind" ${t.blind?"checked":""}>Blindsight</label>${t.blind?`<input id="stBlindR" type="number" min="5" step="5" value="${t.blindR||30}" style="width:56px" aria-label="Blindsight range"> ft`:""}
+        <label class="row" style="gap:4px"><input type="checkbox" id="stTremor" ${t.tremor?"checked":""}>Tremorsense</label>${t.tremor?`<input id="stTremorR" type="number" min="5" step="5" value="${t.tremorR||30}" style="width:56px" aria-label="Tremorsense range"> ft`:""}
+        <label class="row" style="gap:4px"><input type="checkbox" id="stSeeDark" ${t.seeDark?"checked":""}>Darkvision</label>${t.seeDark?`<input id="stDarkR" type="number" min="5" step="5" value="${t.darkR||""}" placeholder="any" style="width:56px" aria-label="Darkvision range"> ft`:""}`:""}</div>
       ${t.stealth?`<div style="margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(155,127,224,.12)"><b>Hiding · Stealth ${t.stealth}</b> <button class="small" id="stReveal">Reveal</button>
           <div class="muted" style="margin-top:3px">${spot.length?"Spotted by: "+spot.map(o=>esc(o.name)).join(", "):"Unnoticed by every enemy"}</div>
           ${open.length?`<div style="color:var(--danger);margin-top:2px">In the open: ${open.map(o=>esc(o.name)).join(", ")} can see it clearly now</div>`:""}</div>`
@@ -2419,12 +2446,12 @@ function stealthPanel(t){
   }
   body.appendChild(box);
   const num=(id,k)=>{ if($(id)) $(id).onchange=e=>{ const v=parseInt(e.target.value,10); if(v>0||(k==="pp"&&v===0)) t[k]=v; else delete t[k]; commit(); renderAll(); }; };
-  num("stPP","pp"); num("stSight","sightD");
+  num("stPP","pp"); num("stSight","sightD"); num("stBlindR","blindR"); num("stTremorR","tremorR"); num("stDarkR","darkR");
   if ($("stCover")) $("stCover").onchange=e=>{ if(e.target.value) t.cover=e.target.value; else delete t.cover; commit(); renderAll(); };
   if ($("stLight")) $("stLight").onchange=e=>{ if(e.target.value){ t.light=e.target.value; delete t.lightOff; } else { delete t.light; delete t.lightOff; } commit(); renderAll(); };
   if ($("stLit")) $("stLit").onchange=e=>{ if(e.target.checked) delete t.lightOff; else t.lightOff=true; commit(); renderAll(); };
   if ($("stStance")) $("stStance").onchange=e=>{ if(e.target.value) t.stance=e.target.value; else delete t.stance; commit(); renderAll(); };
-  [["stDist","distracted"],["stDimHide","hideDim"],["stSeeInv","seeInvis"]].forEach(([id,k])=>{ if($(id)) $(id).onchange=e=>{ if(e.target.checked) t[k]=true; else delete t[k]; commit(); renderAll(); }; });
+  [["stDist","distracted"],["stDimHide","hideDim"],["stSeeInv","seeInvis"],["stBlind","blind"],["stTremor","tremor"],["stSeeDark","seeDark"]].forEach(([id,k])=>{ if($(id)) $(id).onchange=e=>{ if(e.target.checked) t[k]=true; else delete t[k]; commit(); renderAll(); }; });
   if ($("stFacing")) $("stFacing").onchange=e=>{ if(e.target.checked){ t.facing=true; if(t.face==null) t.face=0; } else delete t.facing; commit(); renderAll(); };
   if ($("stRotL")) $("stRotL").onclick=()=>{ t.face=((t.face||0)-45+360)%360; commit(); renderAll(); };
   if ($("stRotR")) $("stRotR").onclick=()=>{ t.face=((t.face||0)+45)%360; commit(); renderAll(); };
