@@ -174,7 +174,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
     </span>
     <button id="paintR" class="dm-only">Paint: reveal</button>
     <button id="paintH" class="dm-only">Paint: hide</button>
-    <select id="brushSz" class="dm-only" aria-label="Brush size"><option value="2.5">5 ft wide</option><option value="5">10 ft wide</option><option value="10">20 ft wide</option><option value="20" selected>40 ft wide</option><option value="40">80 ft wide</option><option value="80">160 ft wide</option></select>
+    <select id="brushSz" class="dm-only" aria-label="Brush size"><option value="2.5">5 ft wide</option><option value="5">10 ft wide</option><option value="10">20 ft wide</option><option value="20">40 ft wide</option><option value="40" selected>80 ft wide</option><option value="80">160 ft wide</option><option value="160">320 ft wide</option></select>
     <select id="brushShape" class="dm-only" aria-label="Brush shape"><option value="round">Brush: round</option><option value="sq">Brush: square</option><option value="tri">Brush: triangle</option><option value="line">Brush: line</option></select>
     <button id="rotL" class="dm-only" hidden aria-label="Rotate brush left">⟲</button><input type="number" id="rotLbl" class="dm-only" hidden min="0" max="359" step="1" value="0" style="width:60px" aria-label="Brush angle in degrees"><button id="rotR" class="dm-only" hidden aria-label="Rotate brush right">⟳</button>
     <button id="clearPaint" class="dm-only">Clear paint</button>
@@ -220,7 +220,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
         <svg id="board" viewBox="0 0 440 660" aria-label="Map of the Arnicite Mines. Drag tokens to move them."></svg>
       </div>
       <div class="legend" id="legend">
-        <span id="legendX" style="display:contents"></span><span>Grid squares = 10 ft</span><span>Pinch or Ctrl/⌘ + scroll to zoom toward the cursor · +/− keys · drag empty space (or Space + drag) to pan</span><span class="dm-only">Shift-click or turn on Multi-select to pick several tokens</span>
+        <span id="legendX" style="display:contents"></span><span>Grid squares = 5 ft</span><span>Pinch or Ctrl/⌘ + scroll to zoom toward the cursor · +/− keys · drag empty space (or Space + drag) to pan</span><span class="dm-only">Shift-click or turn on Multi-select to pick several tokens</span>
       </div>
     </div>
 
@@ -340,7 +340,9 @@ body.player #board .tok.mvbl{cursor:grab !important}
 (function(){
 "use strict";
 const NS = "http://www.w3.org/2000/svg";
-const OX = 20, OY = 20, U = 1, ROOM_W = 1000, ROOM_H = 2200;
+const OX = 20, OY = 20, U = 0.5, ROOM_W = 2000, ROOM_H = 4400, RS = 0.5, RW = ROOM_W*RS, RH = ROOM_H*RS;
+// raster lookup index (rasters are stored at half resolution: 1 pixel = 2 ft)
+function rIdx(x,y){ const xi=Math.floor(x*RS), yi=Math.floor(y*RS); return (xi<0||yi<0||xi>=RW||yi>=RH) ? -1 : (yi*RW+xi)*4+3; }
 const STORE_KEY = "arnicite-mines-map-v1";
 const TAB = Math.random().toString(36).slice(2);
 const FONT = '"Comic Sans MS","Comic Sans","Comic Neue","Chalkboard SE",cursive';
@@ -365,7 +367,8 @@ function sizeOf(t){ return t.size || SIZE_BY_LABEL[t.label] || 5; }
 function rOf(t){ return sizeOf(t)/2*U; }
 
 function shippedState(su){
-  const blank={v:2, tokens:[], crystals:[], groups:[], init:[], cur:0, round:1, phase:1, auras:false, notes:[], scratch:"", revealed:["1"]};
+  const blank={v:2, mapScale:2, tokens:[], crystals:[], groups:[], init:[], cur:0, round:1, phase:1, auras:false, notes:[], scratch:"", revealed:["1"]};
+  if (su) scaleSetupGeo(su);
   if (!su || !su.ship) return blank;
   const SH = su.ship;
   const tokens = clone(SH.tokens||[]), crystals = clone(SH.crystals||[]);
@@ -390,8 +393,32 @@ const history = [];
 let ui = {sel:[], selCrystal:null, activeGroup:null, groupDrag:false, multi:false, lock:true, zoom:1, dragging:false, resetArm:false};
 let canWrite = true, pendingRemote = null, writeTimer = null, writing = false, writeAgain = false;
 
+// ---- 5 ft squares: boards saved before Oct 25 are drawn at half scale, so double every map position once ----
+function rnd1(v){ return Math.round(v*10)/10; }
+function scaleShape(sh,k){ if(!sh) return; if (sh.pts) sh.pts=sh.pts.map(([x,y])=>[rnd1(x*k),rnd1(y*k)]);
+  ["cx","cy","rx","ry","x","y","h"].forEach(f=>{ if(typeof sh[f]==="number") sh[f]=rnd1(sh[f]*k); });
+  if (typeof sh.w==="number") sh.w=rnd1(sh.w*k); }
+function scaleSetupGeo(su){ if(!su||su.mapScale===2) return su; const k=2;
+  (su.areas||[]).forEach(a=>{ if(a.tag) a.tag=[rnd1(a.tag[0]*k),rnd1(a.tag[1]*k)]; (a.shapes||[]).forEach(sh=>scaleShape(sh,k)); (a.water||[]).forEach(sh=>scaleShape(sh,k)); if(a.pillars) a.pillars=a.pillars.map(([x,y,r])=>[rnd1(x*k),rnd1(y*k),rnd1(r*k)]); });
+  (su.deco||[]).forEach(d=>{ d.x=rnd1(d.x*k); d.y=rnd1(d.y*k); ["s","l","w","pl"].forEach(f=>{ if(typeof d[f]==="number") d[f]=rnd1(d[f]*k); }); if ((d.t==="circ"||d.t==="lamp") && typeof d.r==="number") d.r=rnd1(d.r*k); });
+  if (su.ship){ (su.ship.tokens||[]).forEach(t=>{ t.x=rnd1(t.x*k); t.y=rnd1(t.y*k); }); (su.ship.crystals||[]).forEach(c=>{ c.x=rnd1(c.x*k); c.y=rnd1(c.y*k); if(c.size) c.size=rnd1(c.size*k); }); }
+  if (su.roomH) su.roomH=ROOM_H;
+  su.mapScale=2; return su; }
+function scaleStamp(c,k){ ["x","y","r","x1","y1","x2","y2"].forEach(f=>{ if(typeof c[f]==="number") c[f]=rnd1(c[f]*k); }); }
+function scaleState(st,keepBackup){
+  if (!st || st.mapScale===2 || !st.tokens) return st; const k=2;
+  if (keepBackup){ try { localStorage.setItem("arnicite-mines-before-5ft", JSON.stringify(st)); } catch(e){} }
+  if (st.setup) scaleSetupGeo(st.setup);
+  (st.tokens||[]).forEach(t=>{ t.x=rnd1(t.x*k); t.y=rnd1(t.y*k); });
+  (st.crystals||[]).forEach(c=>{ c.x=rnd1(c.x*k); c.y=rnd1(c.y*k); if(c.size) c.size=rnd1(c.size*k); });
+  (st.env||[]).forEach(c=>scaleStamp(c,k)); (st.paint||[]).forEach(c=>scaleStamp(c,k));
+  (st.draws||[]).forEach(d=>{ d.pts=(d.pts||[]).map(([x,y])=>[rnd1(x*k),rnd1(y*k)]); if(typeof d.w==="number") d.w=d.w*k; });
+  (st.templates||[]).forEach(m=>{ const dx=m.x1-m.x0, dy=m.y1-m.y0; m.x0=rnd1(m.x0*k); m.y0=rnd1(m.y0*k); m.x1=rnd1(m.x0+dx); m.y1=rnd1(m.y0+dy); });
+  if (st.checkpoint){ try { const c=JSON.parse(st.checkpoint); scaleState(c,false); st.checkpoint=JSON.stringify(c); } catch(e){} }
+  st.mapScale=2; return st;
+}
 function loadLocal(){
-  try { const raw = localStorage.getItem(STORE_KEY); if (!raw) return null; const s = JSON.parse(raw); return s && s.v===2 ? s : null; } catch(e){ return null; }
+  try { const raw = localStorage.getItem(STORE_KEY); if (!raw) return null; const s = JSON.parse(raw); return s && s.v===2 ? scaleState(s,true) : null; } catch(e){ return null; }
 }
 function saveLocal(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch(e){} }
 function commit(fast){
@@ -449,7 +476,7 @@ function publicView(st){
     let vis; if (LIT && !t.invisible && !paintVisibleAt(t.x,t.y,st) && !tokenInRevealed(t,st)) vis=!hiddenByEnv(st,t)&&pp.sight; else vis=canSee0(t)&&(!t.stealth||pp.sight);
     if (vis) return true; if (pp.feel){ felt.add(t.id); return true; } return false; };
   let vcells=null; if (LIT && V.cat){ const b=new Uint8Array(GW*GH), d=new Uint8Array(GW*GH), m=new Uint8Array(GW*GH); for (let i=0;i<b.length;i++){ const c=V.cat[i]; if(c===1) b[i]=1; else if(c===2) d[i]=1; else if(c===3) m[i]=1; } vcells={b:packBits(b),d:packBits(d),m:packBits(m)}; }
-  return {v:2, lighting:LIT, vcells, draws:(st.draws||[]).map(d=>(d.seen||inView(V.polys,drawPts(d)))?d:Object.assign({},d,{unseen:true})), env:(st.env||[]).map(s=>{ const o=s.vis?Object.assign({},s,{show:s.vis==="step"?!!s.found:sensedEnv(st,s)}):Object.assign({},s); if(!s.seen&&!inView(V.polys,stampPts(s))) o.unseen=true; return o; }), envSee:envSee(st), templates:(st.templates||[]).slice(), battle:!!st.battle, round:st.round, phase:st.phase, auras:st.auras, cur:st.cur, revealed:(st.revealed||[]).slice(), paint:(st.paint||[]).slice(),
+  return {v:2, mapScale:2, lighting:LIT, vcells, draws:(st.draws||[]).map(d=>(d.seen||inView(V.polys,drawPts(d)))?d:Object.assign({},d,{unseen:true})), env:(st.env||[]).map(s=>{ const o=s.vis?Object.assign({},s,{show:s.vis==="step"?!!s.found:sensedEnv(st,s)}):Object.assign({},s); if(!s.seen&&!inView(V.polys,stampPts(s))) o.unseen=true; return o; }), envSee:envSee(st), templates:(st.templates||[]).slice(), battle:!!st.battle, round:st.round, phase:st.phase, auras:st.auras, cur:st.cur, revealed:(st.revealed||[]).slice(), paint:(st.paint||[]).slice(),
     vis: V.polys, explored: st.explored||"",
     areas: pubAreas, deco: decoOf(st).filter(d=>shownIds.has(d.area)),
     legend: ((st.setup&&st.setup.legend)||[]).filter(x=>!x[1]).map(x=>x[0]),
@@ -643,7 +670,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-24f";
+const APP_VER = "2026-10-25a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -709,11 +736,11 @@ async function becomeDM(){
   document.getElementById("signOutBtn").hidden=false;
   try {
     const snap=await fbRoot.child("dm").once("value"); const v=snap.val();
-    if (v&&v.state){ S=JSON.parse(v.state); lastJSON=JSON.stringify(S); saveLocal(); }
+    if (v&&v.state){ const raw=JSON.parse(v.state), old=raw.mapScale!==2; S=scaleState(raw,old); lastJSON=JSON.stringify(S); saveLocal(); if (old) setTimeout(()=>setStatus("Map converted to 5 ft squares. The old board is saved in this browser."),1500); }
     pushShared(); listenLive();
     fbRoot.child("dm").on("value", sn=>{
       const x=sn.val(); if(!x||!x.state||x.writer===TAB||x.at===ui.remoteAt) return; ui.remoteAt=x.at;
-      let next; try{ next=JSON.parse(x.state); }catch(e){ return; }
+      let next; try{ next=scaleState(JSON.parse(x.state),false); }catch(e){ return; }
       if (ui.dragging){ pendingRemote=next; return; }
       applyRemote(next);
     });
@@ -757,7 +784,7 @@ function el(name, attrs, parent){ const e=document.createElementNS(NS,name); for
 const fx = ft => OX + ft*U, fy = ft => OY + ft*U;
 
 const P=(w,pts)=>({t:"p",w,pts}), E=(cx,cy,rx,ry)=>({t:"e",cx,cy,rx,ry}), RC=(x,y,w,h)=>({t:"r",x,y,w,h});
-const EXTRA_AREAS=[{id:"EH",name:"The Empty House",tag:[710,442],shapes:[{t:"r",x:680,y:420,w:60,h:44}]}];
+const EXTRA_AREAS=[{id:"EH",name:"The Empty House",tag:[1420,884],shapes:[{t:"r",x:1360,y:840,w:120,h:88}]}];
 const _areaCache=new WeakMap();
 function areasOf(st){
   if (!st.setup) return st.areas||[];
@@ -770,7 +797,7 @@ function drawDeco(g, defs){
   const D=decoOf(S); if(!D.length) return;
   if (!defs.querySelector("#lampglow")){ const rg=el("radialGradient",{id:"lampglow"},defs);
     el("stop",{offset:"0%","stop-color":"#C9A0FF","stop-opacity":0.42},rg); el("stop",{offset:"55%","stop-color":"#9E7BE0","stop-opacity":0.16},rg); el("stop",{offset:"100%","stop-color":"#9E7BE0","stop-opacity":0},rg); }
-  D.forEach(d=>{ if(d.t==="lamp"&&!d.out) el("circle",{cx:fx(d.x),cy:fy(d.y),r:(d.r||10)*U,fill:"url(#lampglow)"},g); });
+  D.forEach(d=>{ if(d.t==="lamp"&&!d.out) el("circle",{cx:fx(d.x),cy:fy(d.y),r:(d.r||20)*U,fill:"url(#lampglow)"},g); });
   D.forEach(d=>{
     const X=fx(d.x), Y=fy(d.y);
     if (d.t==="sq") el("rect",{x:X-d.s/2*U,y:Y-d.s/2*U,width:d.s*U,height:d.s*U,fill:d.f,stroke:d.st,"stroke-width":2},g);
@@ -779,11 +806,11 @@ function drawDeco(g, defs){
       el("rect",{x:-w/2,y:-h/2,width:w,height:h,rx:Math.min(w,h)*0.15,fill:d.f,stroke:d.st,"stroke-width":1.2,transform:tr},g);
       if (d.pl){ let p=""; const n=Math.max(1,Math.floor(d.l/d.pl)); for(let i=1;i<n;i++){ const x=-w/2+i*w/n; p+=`M${x} ${-h/2}V${h/2}`; } el("path",{d:p,stroke:d.st,"stroke-width":0.8,"stroke-opacity":0.7,fill:"none",transform:tr},g); } }
     else if (d.t==="circ") el("circle",{cx:X,cy:Y,r:d.r*U,fill:d.f||"none",stroke:d.st,"stroke-width":d.sw||1.2,"stroke-dasharray":d.dash?"4 3":"none"},g);
-    else if (d.t==="lamp"){ el("circle",{cx:X,cy:Y,r:0.9*U,fill:d.out?"#4A4038":"#F7B24A",stroke:"#2A1E10","stroke-width":0.8},g);
-      if (d.out){ el("path",{d:`M${X-0.9*U} ${Y-0.9*U}L${X+0.9*U} ${Y+0.9*U}M${X+0.9*U} ${Y-0.9*U}L${X-0.9*U} ${Y+0.9*U}`,stroke:"#2A1E10","stroke-width":0.6},g); } }
+    else if (d.t==="lamp"){ el("circle",{cx:X,cy:Y,r:1.8*U,fill:d.out?"#4A4038":"#F7B24A",stroke:"#2A1E10","stroke-width":0.8},g);
+      if (d.out){ el("path",{d:`M${X-1.8*U} ${Y-1.8*U}L${X+1.8*U} ${Y+1.8*U}M${X+1.8*U} ${Y-1.8*U}L${X-1.8*U} ${Y+1.8*U}`,stroke:"#2A1E10","stroke-width":0.6},g); } }
   });
   if (MODE==="dm" && ui.decoEdit && ui.decoSel!=null && D[ui.decoSel]){ const d=D[ui.decoSel];
-    const r=d.t==="cry"?d.s*0.9+1.5:d.t==="lamp"?2.5:d.t==="circ"?d.r+1.5:d.t==="rect"?Math.hypot(d.l,d.w)/2+1.5:d.t==="sq"?d.s*0.75:6;
+    const r=d.t==="cry"?d.s*0.9+3:d.t==="lamp"?5:d.t==="circ"?d.r+3:d.t==="rect"?Math.hypot(d.l,d.w)/2+3:d.t==="sq"?d.s*0.75:12;
     g.__sel={x:fx(d.x),y:fy(d.y),r:r*U}; }
   const C=D.filter(d=>d.t==="cry"); if(!C.length){ decoMark(g); return; }
   let glow="", base="", dark="", lite="", hi="";
@@ -796,8 +823,8 @@ function drawDeco(g, defs){
       base+=poly(p); dark+=poly([p[0],p[1],m]); lite+=poly([p[0],c,p[2]]); hi+=`M${pt(p[0])}L${pt(m)}`; } });
   el("path",{d:glow,fill:"#F5B040","fill-opacity":0.22},g);
   el("path",{d:base,fill:"#E39A22"},g); el("path",{d:dark,fill:"#94520C"},g); el("path",{d:lite,fill:"#F6BE4C"},g);
-  el("path",{d:hi,fill:"none",stroke:"#FFF3C4","stroke-width":0.22*U},g);
-  el("path",{d:base,fill:"none",stroke:"#4A2A04","stroke-width":0.28*U,"stroke-linejoin":"round"},g);
+  el("path",{d:hi,fill:"none",stroke:"#FFF3C4","stroke-width":0.44*U},g);
+  el("path",{d:base,fill:"none",stroke:"#4A2A04","stroke-width":0.56*U,"stroke-linejoin":"round"},g);
   decoMark(g);
 }
 function decoMark(g){ if(g.__sel) el("circle",{cx:g.__sel.x,cy:g.__sel.y,r:g.__sel.r,fill:"none",stroke:"#FFD84A","stroke-width":1.2,"stroke-dasharray":"3 2"},g); }
@@ -819,9 +846,9 @@ function tokenInRevealed(t,st=S){
   const rev=new Set(st.revealed||[]);
   return areasOf(st).some(a=>rev.has(a.id)&&a.shapes.some(sh=>{
     if(sh.t==="e") return ((t.x-sh.cx)/sh.rx)**2+((t.y-sh.cy)/sh.ry)**2<=1.2;
-    if(sh.t==="r") return t.x>=sh.x-5&&t.x<=sh.x+sh.w+5&&t.y>=sh.y-5&&t.y<=sh.y+sh.h+5;
+    if(sh.t==="r") return t.x>=sh.x-10&&t.x<=sh.x+sh.w+10&&t.y>=sh.y-10&&t.y<=sh.y+sh.h+10;
     for(let i=1;i<sh.pts.length;i++){ const [x1,y1]=sh.pts[i-1],[x2,y2]=sh.pts[i]; const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
-      let u=((t.x-x1)*dx+(t.y-y1)*dy)/L; u=Math.max(0,Math.min(1,u)); if(Math.hypot(x1+u*dx-t.x,y1+u*dy-t.y)<=sh.w/2+6) return true; }
+      let u=((t.x-x1)*dx+(t.y-y1)*dy)/L; u=Math.max(0,Math.min(1,u)); if(Math.hypot(x1+u*dx-t.x,y1+u*dy-t.y)<=sh.w/2+12) return true; }
     return false; }));
 }
 function paintVisibleAt(x,y,st=S){
@@ -829,7 +856,7 @@ function paintVisibleAt(x,y,st=S){
 }
 
 // line of sight
-const CELL=5, GW=Math.ceil(ROOM_W/CELL), GH=Math.ceil(ROOM_H/CELL), RAYS=720;
+const CELL=10, GW=Math.ceil(ROOM_W/CELL), GH=Math.ceil(ROOM_H/CELL), RAYS=720;
 let floorCache={key:null}, visCache={key:null};
 function floorMap(st){
   const A=areasOf(st), rev=new Set(st.revealed||[]);
@@ -837,8 +864,8 @@ function floorMap(st){
   const use=A.filter(a=>!a.hid||fnd.has(a.id)||rev.has(a.id));
   const key=A.length+"|"+use.map(a=>a.id).join(",");
   if (floorCache.key===key) return floorCache;
-  const cv=document.createElement("canvas"); cv.width=ROOM_W; cv.height=ROOM_H;
-  const g=cv.getContext("2d",{willReadFrequently:true}); g.lineCap="round"; g.lineJoin="round";
+  const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH;
+  const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.lineCap="round"; g.lineJoin="round";
   g.fillStyle=g.strokeStyle="#fff";
   use.forEach(a=>{
     a.shapes.forEach(sh=>{ g.beginPath();
@@ -848,10 +875,10 @@ function floorMap(st){
   g.globalCompositeOperation="destination-out";
   use.forEach(a=>(a.pillars||[]).forEach(([x,y,r])=>{ g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill(); }));
   g.globalCompositeOperation="source-over";
-  floorCache={key, use, d:g.getImageData(0,0,ROOM_W,ROOM_H).data};
+  floorCache={key, use, d:g.getImageData(0,0,RW,RH).data};
   return floorCache;
 }
-function floorAt(fm,x,y){ x=Math.floor(x); y=Math.floor(y); if(x<0||y<0||x>=ROOM_W||y>=ROOM_H) return 0; const i=(y*ROOM_W+x)*4; return fm.d[i+3]>=128 ? 1 : 0; }
+function floorAt(fm,x,y){ const i=rIdx(x,y); return i>=0 && fm.d[i]>=128 ? 1 : 0; }
 function walkTo(fm,x0,y0,x1,y1){
   if (!floorAt(fm,x0,y0)) return [x1,y1];
   const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/0.5)); let lx=x0, ly=y0;
@@ -880,7 +907,7 @@ function computeVision(st){
         const ci=Math.floor(y/CELL)*GW+Math.floor(x/CELL);
         if (LIT){ const l=lf(x,y), dv=rng(t.seeDark,t.darkR,d)||rng(t.truesight,t.trueR,d); const c=l===2?4:l===1?(dv?4:3):(dv||(envAt(st,"magic",x,y)&&rng(t.seeMagic,t.magicR,d))?2:1); if (c>cat[ci]) cat[ci]=c; }
         else floorCells.add(ci); }
-      const e=d<R?d+4:d, ex=t.x+dx*e, ey=t.y+dy*e;
+      const e=d<R?d+8:d, ex=t.x+dx*e, ey=t.y+dy*e;
       pts.push([ex,ey]);
     }
     polys.push(simplify(pts,0.25)); if (t.truesight) truePolys.push(polys[polys.length-1]);
@@ -949,9 +976,9 @@ function buildVisMask(defs,id,showColor,hideColor,dimColor){
   const ex=dimColor?exploredPath(S):"";
   if (ex){ const fmk=el("mask",{id:id+"-floor",maskUnits:"userSpaceOnUse",x:0,y:0,width:ROOM_W*U+2*OX,height:ROOM_H*U+2*OY},defs);
     el("rect",{x:0,y:0,width:ROOM_W*U+2*OX,height:ROOM_H*U+2*OY,fill:"black"},fmk);
-    areasOf(S).forEach(a=>a.shapes.forEach(sh=>{ if(sh.t==="p") shapeEl(sh,fmk,{p:{stroke:"white","stroke-width":(sh.w+10)*U}}); else shapeEl(sh,fmk,{s:{fill:"white",stroke:"white","stroke-width":a.lair?8:6}}); }));
+    areasOf(S).forEach(a=>a.shapes.forEach(sh=>{ if(sh.t==="p") shapeEl(sh,fmk,{p:{stroke:"white","stroke-width":(sh.w+20)*U}}); else shapeEl(sh,fmk,{s:{fill:"white",stroke:"white","stroke-width":a.lair?8:6}}); }));
     el("path",{d:ex,fill:dimColor,mask:`url(#${id}-floor)`},m); }
-  areasOf(S).filter(a=>rev.has(a.id)).forEach(a=>a.shapes.forEach(sh=>{ if(sh.t==="p") shapeEl(sh,m,{p:{stroke:showColor,"stroke-width":(sh.w+12)*U}}); else shapeEl(sh,m,{s:{fill:showColor,stroke:showColor,"stroke-width":12}}); }));
+  areasOf(S).filter(a=>rev.has(a.id)).forEach(a=>a.shapes.forEach(sh=>{ if(sh.t==="p") shapeEl(sh,m,{p:{stroke:showColor,"stroke-width":(sh.w+24)*U}}); else shapeEl(sh,m,{s:{fill:showColor,stroke:showColor,"stroke-width":12}}); }));
   (S.paint||[]).forEach(c=>stampEl(c,m,{fill:c.m==="r"?showColor:hideColor}));
   visPolys().forEach(p=>el("path",{d:polyD(p),fill:showColor},m));
   visBlack(m,hideColor,dimColor);
@@ -960,26 +987,26 @@ function buildVisMask(defs,id,showColor,hideColor,dimColor){
 function drawMines(defs){
   const dm=MODE==="dm", rev=new Set(S.revealed||[]);
   const ROCK="#5B5347", FLOOR="#D9CFBC", EDGE="#3A3328", HIDF="#A79A80";
-  el("rect",{x:fx(0),y:fy(80),width:ROOM_W*U,height:(ROOM_H-80)*U,rx:20,fill:ROCK},svg);
+  el("rect",{x:fx(0),y:fy(160),width:ROOM_W*U,height:(ROOM_H-160)*U,rx:20,fill:ROCK},svg);
   if (!dm) buildVisMask(defs,"vismask","white","black","#5a5a5a");
   const world=el("g",dm?{}:{mask:"url(#vismask)"},svg);
-  { const g=el("g",{},world); el("rect",{x:fx(0),y:fy(0),width:ROOM_W*U,height:80*U,rx:10,fill:"#97C459"},g);
-    for(let i=0;i<14;i++){ el("circle",{cx:fx(30+i*72),cy:fy(28),r:12,fill:"#3B6D11"},g); el("circle",{cx:fx(52+i*72),cy:fy(58),r:10,fill:"#27500A"},g); } }
+  { const g=el("g",{},world); el("rect",{x:fx(0),y:fy(0),width:ROOM_W*U,height:160*U,rx:10,fill:"#97C459"},g);
+    for(let i=0;i<14;i++){ el("circle",{cx:fx(60+i*144),cy:fy(56),r:12,fill:"#3B6D11"},g); el("circle",{cx:fx(104+i*144),cy:fy(116),r:10,fill:"#27500A"},g); } }
   const layers=[el("g",{},world),el("g",{},world),el("g",{},world),el("g",{},world),el("g",{},world)], STRIPE=layers[4], WATER=layers[2], TOP=layers[3];
   areasOf(S).filter(a=>!a.forest&&(dm||!a.hid||rev.has(a.id)||areaPainted(a))).forEach(a=>{
     const hd=a.hid&&!(S.found||[]).includes(a.id), f=hd?HIDF:FLOOR;
     const L0=a.island?TOP:layers[0], L1=a.island?TOP:layers[1];
-    if (a.island) a.shapes.filter(sh=>sh.t==="e").forEach(sh=>{ el("ellipse",{cx:fx(sh.cx),cy:fy(sh.cy),rx:(sh.rx+6)*U,ry:(sh.ry+6)*U,fill:"#9DB3A6",opacity:0.7},TOP); el("ellipse",{cx:fx(sh.cx),cy:fy(sh.cy),rx:(sh.rx+2.5)*U,ry:(sh.ry+2.5)*U,fill:"#C8B98F"},TOP); });
+    if (a.island) a.shapes.filter(sh=>sh.t==="e").forEach(sh=>{ el("ellipse",{cx:fx(sh.cx),cy:fy(sh.cy),rx:(sh.rx+12)*U,ry:(sh.ry+12)*U,fill:"#9DB3A6",opacity:0.7},TOP); el("ellipse",{cx:fx(sh.cx),cy:fy(sh.cy),rx:(sh.rx+5)*U,ry:(sh.ry+5)*U,fill:"#C8B98F"},TOP); });
     a.shapes.forEach(sh=>{
-      if (sh.t==="p"){ shapeEl(sh,L0,{p:{stroke:EDGE,"stroke-width":(sh.w+10)*U}}); shapeEl(sh,L1,{p:{stroke:a.lair?"#E6DCC6":f,"stroke-width":sh.w*U}}); }
+      if (sh.t==="p"){ shapeEl(sh,L0,{p:{stroke:EDGE,"stroke-width":(sh.w+20)*U}}); shapeEl(sh,L1,{p:{stroke:a.lair?"#E6DCC6":f,"stroke-width":sh.w*U}}); }
       else { shapeEl(sh,L1,{s:{fill:a.lair?"#E6DCC6":f,stroke:a.island?EDGE:"none","stroke-width":a.island?3:0}}); if(!a.island) shapeEl(sh,L0,{s:{fill:"none",stroke:a.lair?"#2E2A35":EDGE,"stroke-width":a.lair?8:6}}); }
     });
     if ((a.water||[]).length) drawWater(a,WATER,defs);
     (a.pillars||[]).forEach(([x,y,r])=>el("circle",{cx:fx(x),cy:fy(y),r:r*U,fill:"#5B5347",stroke:EDGE,"stroke-width":2},TOP));
     if (a.stripe) a.shapes.filter(sh=>sh.t==="p").forEach(sh=>shapeEl(sh,STRIPE,{p:{stroke:a.stripe,"stroke-width":3,opacity:0.75,"stroke-dasharray":hd?"6 8":"none"}}));
   });
-  let gd=""; for(let x=10;x<ROOM_W;x+=10) gd+=`M${fx(x)} ${fy(0)}V${fy(ROOM_H)}`; for(let y=10;y<ROOM_H;y+=10) gd+=`M${fx(0)} ${fy(y)}H${fx(ROOM_W)}`;
-  const gridG=el("g",{},world); el("path",{d:gd,stroke:"#000","stroke-opacity":0.08,"stroke-width":0.5,fill:"none"},gridG);
+  let gd=""; for(let x=5;x<ROOM_W;x+=5) gd+=`M${fx(x)} ${fy(0)}V${fy(ROOM_H)}`; for(let y=5;y<ROOM_H;y+=5) gd+=`M${fx(0)} ${fy(y)}H${fx(ROOM_W)}`;
+  const gridG=el("g",{},world); el("path",{d:gd,stroke:"#000","stroke-opacity":0.08,"stroke-width":0.35,fill:"none"},gridG);
   const mask=el("mask",{id:"floormask",maskUnits:"userSpaceOnUse",x:0,y:0,width:ROOM_W*U+2*OX,height:ROOM_H*U+2*OY},defs); el("rect",{x:0,y:0,width:ROOM_W*U+2*OX,height:ROOM_H*U+2*OY,fill:"black"},mask);
   areasOf(S).filter(a=>!a.forest).forEach(a=>a.shapes.forEach(sh=>{ if(sh.t==="p") shapeEl(sh,mask,{p:{stroke:"white","stroke-width":sh.w*U}}); else shapeEl(sh,mask,{s:{fill:"white"}}); }));
   gridG.setAttribute("mask","url(#floormask)");
@@ -1010,9 +1037,9 @@ function drawWater(a,parent,defs){
   }
   if (!defs.querySelector("#wblur")){ const f=el("filter",{id:"wblur",x:"-30%",y:"-30%",width:"160%",height:"160%"},defs); el("feGaussianBlur",{stdDeviation:14},f); }
   const g=el("g",{},parent);
-  const halo=el("g",{opacity:0.45,filter:"url(#wblur)"},g); W.forEach(sh=>E(sh,1,12,{fill:"#9EE6FF"},halo));
-  const rim=el("g",{},g); W.forEach(sh=>E(sh,1,6,{fill:"#A9D7DE"},rim));
-  const wet=el("g",{opacity:0.9},g); W.forEach(sh=>E(sh,1,3,{fill:"#B8EAF5"},wet));
+  const halo=el("g",{opacity:0.45,filter:"url(#wblur)"},g); W.forEach(sh=>E(sh,1,24,{fill:"#9EE6FF"},halo));
+  const rim=el("g",{},g); W.forEach(sh=>E(sh,1,12,{fill:"#A9D7DE"},rim));
+  const wet=el("g",{opacity:0.9},g); W.forEach(sh=>E(sh,1,6,{fill:"#B8EAF5"},wet));
   const body=el("g",{},g); W.forEach(sh=>E(sh,1,0,{fill:"#8ED8EE"},body));
   const inner=el("g",{"clip-path":`url(#${id})`},g);
   const mid=el("g",{opacity:0.5,filter:"url(#wblur)"},inner); W.forEach(sh=>E(sh,0.75,0,{fill:"#6CC8EA"},mid));
@@ -1021,13 +1048,13 @@ function drawWater(a,parent,defs){
   el("rect",{x:fx(x0),y:fy(y0),width:(x1-x0)*U,height:(y1-y0)*U,fill:"url(#ripples)"},inner);
   // a few long glints
   let seed=7; const rnd=()=>{ seed=(seed*9301+49297)%233280; return seed/233280; };
-  for (let i=0;i<18;i++){ const sh=W[i%W.length], t=rnd()*Math.PI*2, r=Math.sqrt(rnd())*0.8, x=sh.cx+Math.cos(t)*sh.rx*r, y=sh.cy+Math.sin(t)*sh.ry*r, L=6+rnd()*10;
-    el("path",{d:`M${fx(x-L/2)} ${fy(y)} q${L/2*U} ${-2.2*U} ${L*U} 0`,stroke:"#FFFFFF","stroke-width":1.3,fill:"none","stroke-linecap":"round",opacity:0.45+rnd()*0.3},inner); }
+  for (let i=0;i<18;i++){ const sh=W[i%W.length], t=rnd()*Math.PI*2, r=Math.sqrt(rnd())*0.8, x=sh.cx+Math.cos(t)*sh.rx*r, y=sh.cy+Math.sin(t)*sh.ry*r, L=12+rnd()*20;
+    el("path",{d:`M${fx(x-L/2)} ${fy(y)} q${L/2*U} ${-4.4*U} ${L*U} 0`,stroke:"#FFFFFF","stroke-width":1.3,fill:"none","stroke-linecap":"round",opacity:0.45+rnd()*0.3},inner); }
   // shoreline foam line on the merged edge
   const foam=el("g",{opacity:0.55},g);
   W.forEach((sh,i)=>{ const mid=id+"-f"+i;
-    if (!defs.querySelector("#"+mid)){ const m=el("mask",{id:mid,maskUnits:"userSpaceOnUse",x:fx(x0-20),y:fy(y0-20),width:(x1-x0+40)*U,height:(y1-y0+40)*U},defs);
-      el("rect",{x:fx(x0-20),y:fy(y0-20),width:(x1-x0+40)*U,height:(y1-y0+40)*U,fill:"white"},m); W.forEach((o,j)=>{ if(j!==i) E(o,1,-0.8,{fill:"black"},m); }); }
+    if (!defs.querySelector("#"+mid)){ const m=el("mask",{id:mid,maskUnits:"userSpaceOnUse",x:fx(x0-40),y:fy(y0-40),width:(x1-x0+80)*U,height:(y1-y0+80)*U},defs);
+      el("rect",{x:fx(x0-40),y:fy(y0-40),width:(x1-x0+80)*U,height:(y1-y0+80)*U,fill:"white"},m); W.forEach((o,j)=>{ if(j!==i) E(o,1,-1.6,{fill:"black"},m); }); }
     E(sh,1,0,{fill:"none",stroke:"#F2FDFF","stroke-width":1.3,"stroke-dasharray":"4 5",mask:`url(#${mid})`},foam); });
 }
 function revealedBox(){
@@ -1037,14 +1064,14 @@ function revealedBox(){
     if(sh.t==="p") sh.pts.forEach(([x,y])=>add(x-sh.w,y-sh.w,x+sh.w,y+sh.w));
     else if(sh.t==="e") add(sh.cx-sh.rx,sh.cy-sh.ry,sh.cx+sh.rx,sh.cy+sh.ry);
     else add(sh.x,sh.y,sh.x+sh.w,sh.y+sh.h); }));
-  if (rev.has("8")) add(0,0,1000,90);
+  if (rev.has("8")) add(0,0,ROOM_W,180);
   (S.paint||[]).forEach(c=>{ const k=stampReach(c); if(c.m==="r") add(c.x-k,c.y-k,c.x+k,c.y+k); });
-  (S.tokens||[]).forEach(t=>{ if(t.kind==="party"||t.movable) add(t.x-15,t.y-15,t.x+15,t.y+15); });
+  (S.tokens||[]).forEach(t=>{ if(t.kind==="party"||t.movable) add(t.x-30,t.y-30,t.x+30,t.y+30); });
   visPolys().forEach(p=>p.forEach(([x,y])=>add(x,y,x,y)));
   { const b=bitsOf(S); for(let i=0;i<b.length;i++) if(b[i]){ const x=(i%GW)*CELL, y=((i/GW)|0)*CELL; add(x,y,x+CELL,y+CELL); } }
   if (x0>x1) return null;
-  const pad=40; x0-=pad;y0-=pad;x1+=pad;y1+=pad;
-  const minW=220, minH=220;
+  const pad=80; x0-=pad;y0-=pad;x1+=pad;y1+=pad;
+  const minW=440, minH=440;
   if (x1-x0<minW){ const c=(x0+x1)/2; x0=c-minW/2; x1=c+minW/2; }
   if (y1-y0<minH){ const c=(y0+y1)/2; y0=c-minH/2; y1=c+minH/2; }
   return [fx(x0),fy(y0),(x1-x0)*U,(y1-y0)*U];
@@ -1524,7 +1551,7 @@ document.getElementById("lockBtn").onclick=()=>{ ui.lock=!ui.lock; renderAll(); 
 function applyZoom(){ svg.style.width=(ui.zoom*100)+"%"; renderRound(); }
 // ---- zoom & pan: zoom toward the cursor / fingers, pan by dragging ----
 const boardbox=document.getElementById("boardbox");
-const ZMIN=0.5, ZMAX=10;
+const ZMIN=0.5, ZMAX=16;
 function zoomLabel(){ const l=document.getElementById("zoomLbl"); if(l) l.textContent=Math.round(ui.zoom*100)+"%"; }
 function zoomTo(nz,px,py){
   nz=Math.max(ZMIN,Math.min(ZMAX,nz)); if (Math.abs(nz-ui.zoom)<0.001) return;
@@ -1648,7 +1675,7 @@ document.getElementById("newCancel").onclick=()=>{ addCard.hidden=true; };
 document.getElementById("newGo").onclick=()=>{
   const v=id=>document.getElementById(id).value;
   const label=(v("newLabel").trim()||"?").slice(0,4), name=v("newName").trim()||label, kind=v("newKind"), hp=parseInt(v("newHp"),10), size=5;
-  const t={id:uid(),label,name,kind,x:500,y:2050,size,hp:hp>0?hp:null,max:hp>0?hp:null,dead:false,dash:false};
+  const t={id:uid(),label,name,kind,x:1000,y:4100,size,hp:hp>0?hp:null,max:hp>0?hp:null,dead:false,dash:false};
   if (v("newShape")) t.shape=v("newShape");
   applyDims(t,t.shape||"",k=>parseFloat(v("nd"+k)));
   S.tokens.push(t); ui.sel=[t.id]; ui.selCrystal=null;
@@ -1752,9 +1779,10 @@ document.getElementById("setupFile").onchange=async e=>{
   const f=e.target.files[0]; e.target.value=""; if(!f) return;
   let d; try { d=JSON.parse(await f.text()); } catch(err){ setStatus("That file isn't a setup file."); return; }
   if (d && d.v===2 && Array.isArray(d.tokens) && d.setup && d.setup.board===STORE_KEY){
-    S=d; S.notes=(d.notes||[]).concat([{id:uid(),text:"Board restored from a backup file.",round:S.round,at:Date.now()}]);
+    S=scaleState(d,false); S.notes=(d.notes||[]).concat([{id:uid(),text:"Board restored from a backup file.",round:S.round,at:Date.now()}]);
     commit(); pruneSelection(); renderAll(); setStatus("Board restored from the backup file. Undo puts the previous board back."); return; }
   if (!d || d.board!==STORE_KEY){ setStatus("That setup file is for a different map."); return; }
+  scaleSetupGeo(d);
   const empty=!S.tokens.length&&!S.crystals.length;
   if (empty){ const n=shippedState(d); n.notes=S.notes; n.scratch=S.scratch; if(S.checkpoint) n.checkpoint=S.checkpoint; S=n; }
   else S.setup=d;
@@ -1864,16 +1892,16 @@ function obstRaster(st){
   const out={key};
   [["move",d=>true],["sight",d=>d.k==="wall"]].forEach(([nm,ok])=>{
     const list=ds.filter(ok); if(!list.length) return;
-    const cv=document.createElement("canvas"); cv.width=ROOM_W; cv.height=ROOM_H;
-    const g=cv.getContext("2d",{willReadFrequently:true}); g.strokeStyle="#fff"; g.fillStyle="#fff"; g.lineCap="round"; g.lineJoin="round";
-    list.forEach(d=>{ g.lineWidth=Math.max(1,d.w); g.beginPath(); d.pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); if(d.pts.length===1) g.lineTo(d.pts[0][0]+0.1,d.pts[0][1]); g.stroke(); });
-    out[nm]=g.getImageData(0,0,ROOM_W,ROOM_H).data;
+    const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH;
+    const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.strokeStyle="#fff"; g.fillStyle="#fff"; g.lineCap="round"; g.lineJoin="round";
+    list.forEach(d=>{ g.lineWidth=Math.max(2,d.w); g.beginPath(); d.pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); if(d.pts.length===1) g.lineTo(d.pts[0][0]+0.1,d.pts[0][1]); g.stroke(); });
+    out[nm]=g.getImageData(0,0,RW,RH).data;
   });
   obstCache=out; return out;
 }
-function obstAt(st,x,y,kind){ const r=obstRaster(st)[kind]; if(!r) return false; x=Math.floor(x); y=Math.floor(y); if(x<0||y<0||x>=ROOM_W||y>=ROOM_H) return false; return r[(y*ROOM_W+x)*4+3]>=128; }
+function obstAt(st,x,y,kind){ const r=obstRaster(st)[kind]; if(!r) return false; const i=rIdx(x,y); return i>=0 && r[i]>=128; }
 function segDist(px,py,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy||1; let u=((px-a[0])*dx+(py-a[1])*dy)/L; u=Math.max(0,Math.min(1,u)); return Math.hypot(a[0]+u*dx-px,a[1]+u*dy-py); }
-function eraseDraw(x,y){ const n=(S.draws||[]).length; S.draws=(S.draws||[]).filter(d=>!(d.pts.length===1 ? Math.hypot(d.pts[0][0]-x,d.pts[0][1]-y)<4 : d.pts.some((q,i)=>i>0&&segDist(x,y,d.pts[i-1],q)<4+d.w/2))); return S.draws.length!==n; }
+function eraseDraw(x,y){ const n=(S.draws||[]).length; S.draws=(S.draws||[]).filter(d=>!(d.pts.length===1 ? Math.hypot(d.pts[0][0]-x,d.pts[0][1]-y)<8 : d.pts.some((q,i)=>i>0&&segDist(x,y,d.pts[i-1],q)<8+d.w/2))); return S.draws.length!==n; }
 function drawDraws(parent){
   (S.draws||[]).forEach(d=>{
     if (MODE!=="dm" && d.unseen) return;
@@ -1882,7 +1910,7 @@ function drawDraws(parent){
     el("path",{d:dd,fill:"none",stroke:d.k==="wall"?"#2E2A25":d.c,"stroke-width":Math.max(1,d.w*U),"stroke-linecap":"round","stroke-linejoin":"round","pointer-events":"none",opacity:d.k==="pen"?0.9:1},parent);
     if (d.k==="obst") el("path",{d:dd,fill:"none",stroke:"#fff","stroke-width":Math.max(0.8,d.w*U*0.22),"stroke-dasharray":"3 4","stroke-linecap":"round","pointer-events":"none",opacity:0.75},parent);
   });
-  if (MODE==="dm" && ui.draw==="erase" && ui.drawAt) el("circle",{cx:fx(ui.drawAt.x),cy:fy(ui.drawAt.y),r:4*U,fill:"none",stroke:"#F09595","stroke-width":1.5,"stroke-dasharray":"3 3","pointer-events":"none"},svg);
+  if (MODE==="dm" && ui.draw==="erase" && ui.drawAt) el("circle",{cx:fx(ui.drawAt.x),cy:fy(ui.drawAt.y),r:8*U,fill:"none",stroke:"#F09595","stroke-width":1.5,"stroke-dasharray":"3 3","pointer-events":"none"},svg);
 }
 function stopDraw(){ if(!ui.draw) return; ui.draw=null; ui.drawAt=null; document.getElementById("drawSel").value=""; svg.style.cursor=""; renderBoard(); }
 document.getElementById("drawSel").onchange=e=>{ ui.draw=e.target.value||null; ui.drawAt=null;
@@ -1908,14 +1936,14 @@ function envRaster(st){
   const out={key};
   ["dark","magic","dm","terrain","dim"].forEach(k=>{
     const list=z.filter(s=>s.k===k); if(!list.length) return;
-    const cv=document.createElement("canvas"); cv.width=ROOM_W; cv.height=ROOM_H;
-    const g=cv.getContext("2d",{willReadFrequently:true}); g.fillStyle="#fff";
+    const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH;
+    const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.fillStyle="#fff";
     list.forEach(s=>{ g.beginPath(); if (shOf(s)){ shapePts(s).forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.closePath(); } else g.arc(s.x,s.y,s.r,0,Math.PI*2); g.fill(); });
-    out[k]=g.getImageData(0,0,ROOM_W,ROOM_H).data;
+    out[k]=g.getImageData(0,0,RW,RH).data;
   });
   envCache=out; return out;
 }
-function envAt(st,k,x,y){ const r=envRaster(st)[k]; if(!r) return false; x=Math.floor(x); y=Math.floor(y); if(x<0||y<0||x>=ROOM_W||y>=ROOM_H) return false; return r[(y*ROOM_W+x)*4+3]>=128; }
+function envAt(st,k,x,y){ const r=envRaster(st)[k]; if(!r) return false; const i=rIdx(x,y); return i>=0 && r[i]>=128; }
 function viewersOf(st){ const v=sources(st); if (v.length) return v; return (st.tokens||[]).filter(t=>t.kind==="party"&&!t.dead); }
 function envSee(st){ if (st.envSee) return st.envSee; const v=viewersOf(st); return {dark:v.some(t=>t.seeDark||t.truesight), magic:v.some(t=>t.seeMagic||t.truesight), invis:v.some(t=>t.truesight)}; }
 function markSteps(t,x0,y0,x1,y1){
@@ -2105,7 +2133,7 @@ if (MODE==="player"){
 function setPaint(m){ ui.paint = ui.paint===m ? null : m; ui.brushAt=null; if (ui.paint && ui.place!=null){ ui.place=null; renderPresets(); }
   document.getElementById("paintR").classList.toggle("on",ui.paint==="r"); document.getElementById("paintH").classList.toggle("on",ui.paint==="h");
   svg.style.cursor = ui.paint ? "crosshair" : ""; renderBoard(); }
-ui.brush=20; ui.shape="round"; ui.angle=0;
+ui.brush=40; ui.shape="round"; ui.angle=0;
 document.getElementById("clearPaint").onclick=()=>{ S.paint=[]; commit(); renderAll(); };
 svg.addEventListener("pointerleave",()=>{ if(ui.paint&&!painting){ ui.brushAt=null; renderBoard(); } });
 document.getElementById("frameBtn").onclick=()=>{ ui.frame=!ui.frame; renderBoard(); };
@@ -2259,16 +2287,16 @@ let fullFloorCache={key:null};
 function fullFloor(st){
   const A=areasOf(st), key=A.length+"|"+A.map(a=>a.id).join(",");
   if (fullFloorCache.key===key) return fullFloorCache;
-  const cv=document.createElement("canvas"); cv.width=ROOM_W; cv.height=ROOM_H;
-  const g=cv.getContext("2d",{willReadFrequently:true}); g.lineCap="round"; g.lineJoin="round"; g.fillStyle=g.strokeStyle="#fff";
+  const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH;
+  const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.lineCap="round"; g.lineJoin="round"; g.fillStyle=g.strokeStyle="#fff";
   A.forEach(a=>a.shapes.forEach(sh=>{ g.beginPath(); if(sh.t==="p"){ g.lineWidth=sh.w; sh.pts.forEach(([x,y],k)=>k?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); } else if(sh.t==="e"){ g.ellipse(sh.cx,sh.cy,sh.rx,sh.ry,0,0,Math.PI*2); g.fill(); } else { g.rect(sh.x,sh.y,sh.w,sh.h); g.fill(); } }));
   g.globalCompositeOperation="destination-out"; A.forEach(a=>(a.pillars||[]).forEach(([x,y,r])=>{ g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill(); })); g.globalCompositeOperation="source-over";
-  fullFloorCache={key,d:g.getImageData(0,0,ROOM_W,ROOM_H).data}; return fullFloorCache;
+  fullFloorCache={key,d:g.getImageData(0,0,RW,RH).data}; return fullFloorCache;
 }
-function ffAt(st,x,y){ x=Math.floor(x); y=Math.floor(y); if(x<0||y<0||x>=ROOM_W||y>=ROOM_H) return false; return fullFloor(st).d[(y*ROOM_W+x)*4+3]>=128; }
+function ffAt(st,x,y){ const i=rIdx(x,y); return i>=0 && fullFloor(st).d[i]>=128; }
 function lightSources(st){
   const L=[];
-  decoOf(st).forEach(d=>{ if(d.t==="lamp"&&!d.out){ const r=d.r||10; L.push({x:d.x,y:d.y,b:r,d:r}); } });
+  decoOf(st).forEach(d=>{ if(d.t==="lamp"&&!d.out){ const r=d.r||20; L.push({x:d.x,y:d.y,b:r,d:r}); } });
   (st.tokens||[]).forEach(t=>{ if(t.dead||!t.light||t.lightOff) return; const L0=LIGHTS[t.light]; if(!L0) return; L.push({x:t.x,y:t.y,b:L0.b,d:L0.d,cone:L0.cone?(t.face||0):null}); });
   return L;
 }
@@ -2276,13 +2304,13 @@ function lightKey(st){ if(!lightingOn(st)) return "off"; return JSON.stringify(l
 let lightCache={key:null};
 function lightRaster(st){
   const key=lightKey(st); if (lightCache.key===key) return lightCache;
-  const mk=()=>{ const cv=document.createElement("canvas"); cv.width=ROOM_W; cv.height=ROOM_H; const g=cv.getContext("2d",{willReadFrequently:true}); g.fillStyle="#fff"; g.strokeStyle="#fff"; g.lineCap="round"; g.lineJoin="round"; return g; };
+  const mk=()=>{ const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH; const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.fillStyle="#fff"; g.strokeStyle="#fff"; g.lineCap="round"; g.lineJoin="round"; return g; };
   const gb=mk(), gd=mk();
   const fillArea=(g,a)=>a.shapes.forEach(sh=>{ g.beginPath(); if(sh.t==="p"){ g.lineWidth=sh.w; sh.pts.forEach(([x,y],k)=>k?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); } else if(sh.t==="e"){ g.ellipse(sh.cx,sh.cy,sh.rx,sh.ry,0,0,Math.PI*2); g.fill(); } else { g.rect(sh.x,sh.y,sh.w,sh.h); g.fill(); } });
   areasOf(st).forEach(a=>{ const lv=a.light||(a.forest?"bright":""); if(lv==="bright") fillArea(gb,a); else if(lv==="dim") fillArea(gd,a); });
-  if (!(st.setup&&st.setup.lakeDark)) areasOf(st).forEach(a=>(a.water||[]).forEach(sh=>{ gd.beginPath(); gd.ellipse(sh.cx,sh.cy,sh.rx+4,sh.ry+4,0,0,Math.PI*2); gd.fill(); }));
+  if (!(st.setup&&st.setup.lakeDark)) areasOf(st).forEach(a=>(a.water||[]).forEach(sh=>{ gd.beginPath(); gd.ellipse(sh.cx,sh.cy,sh.rx+8,sh.ry+8,0,0,Math.PI*2); gd.fill(); }));
   const ER=envRaster(st), wall=(st.draws||[]).some(d=>d.k==="wall");
-  const blocks=(x,y)=>{ if(!ffAt(st,x,y)) return true; const xi=Math.floor(x), yi=Math.floor(y), i=(yi*ROOM_W+xi)*4+3; return (ER.magic&&ER.magic[i]>=128)||(ER.dm&&ER.dm[i]>=128)||(wall&&obstAt(st,x,y,"sight")); };
+  const blocks=(x,y)=>{ if(!ffAt(st,x,y)) return true; const i=rIdx(x,y); return (ER.magic&&ER.magic[i]>=128)||(ER.dm&&ER.dm[i]>=128)||(wall&&obstAt(st,x,y,"sight")); };
   lightSources(st).forEach(s=>{
     const R=s.b+s.d, N=Math.max(90,Math.ceil(R*3)), pb=[], pd=[];
     for (let i=0;i<=N;i++){
@@ -2293,14 +2321,14 @@ function lightRaster(st){
     const poly=(g,pts)=>{ g.beginPath(); if(s.cone!=null) g.moveTo(s.x,s.y); pts.forEach(([x,y],k)=>(k||s.cone!=null)?g.lineTo(x,y):g.moveTo(x,y)); g.closePath(); g.fill(); };
     poly(gd,pd); poly(gb,pb);
   });
-  lightCache={key, b:gb.getImageData(0,0,ROOM_W,ROOM_H).data, d:gd.getImageData(0,0,ROOM_W,ROOM_H).data};
+  lightCache={key, b:gb.getImageData(0,0,RW,RH).data, d:gd.getImageData(0,0,RW,RH).data};
   return lightCache;
 }
 // fast light lookup: 2 bright, 1 dim, 0 dark
 function lightFn(st){
   if (!lightingOn(st)) return ()=>2;
   const LR=lightRaster(st), ER=envRaster(st);
-  return (x,y)=>{ const xi=Math.floor(x), yi=Math.floor(y); if(xi<0||yi<0||xi>=ROOM_W||yi>=ROOM_H) return 0; const i=(yi*ROOM_W+xi)*4+3;
+  return (x,y)=>{ const i=rIdx(x,y); if(i<0) return 0;
     if ((ER.dark&&ER.dark[i]>=128)||(ER.magic&&ER.magic[i]>=128)||(ER.dm&&ER.dm[i]>=128)) return 0;
     if (ER.dim&&ER.dim[i]>=128) return 1;
     return LR.b[i]>=128?2:LR.d[i]>=128?1:0; };
@@ -2317,7 +2345,7 @@ let shadeCache={key:null};
 function dmShadePaths(st){
   const key=lightKey(st)+"|"+fullFloor(st).key+"|"+JSON.stringify((st.env||[]).filter(z=>z.k==="dark"||z.k==="dim"));
   if (shadeCache.key===key) return shadeCache;
-  const c=2.5, W=Math.round(ROOM_W/c), H=Math.round(ROOM_H/c), dk=new Uint8Array(W*H), dm=new Uint8Array(W*H), lf=lightFn(st);
+  const c=5, W=Math.round(ROOM_W/c), H=Math.round(ROOM_H/c), dk=new Uint8Array(W*H), dm=new Uint8Array(W*H), lf=lightFn(st);
   for (let y=0;y<H;y++) for (let x=0;x<W;x++){ const px=(x+0.5)*c, py=(y+0.5)*c; if(!ffAt(st,px,py)) continue; const l=lf(px,py); if(l===0) dk[y*W+x]=1; else if(l===1) dm[y*W+x]=1; }
   shadeCache={key, dark:cellsPath(dk,c), dim:cellsPath(dm,c)}; return shadeCache;
 }
