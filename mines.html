@@ -672,7 +672,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-25c";
+const APP_VER = "2026-10-25d";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -860,11 +860,14 @@ function paintVisibleAt(x,y,st=S){
 // line of sight
 const CELL=10, GW=Math.ceil(ROOM_W/CELL), GH=Math.ceil(ROOM_H/CELL), RAYS=720;
 let floorCache={key:null}, visCache={key:null};
+// a cheap identity for the current area geometry (recomputed only when the areas array changes)
+var _geoKeys=new WeakMap();
+function geoKey(A){ let k=_geoKeys.get(A); if (!k){ k=A.length+"|"+A.map(a=>a.id+"@"+(a.tag||[]).join(",")+"#"+JSON.stringify(a.shapes).length).join(","); _geoKeys.set(A,k); } return k; }
 function floorMap(st){
   const A=areasOf(st), rev=new Set(st.revealed||[]);
   const fnd=new Set(st.found||[]);
   const use=A.filter(a=>!a.hid||fnd.has(a.id)||rev.has(a.id));
-  const key=A.length+"|"+use.map(a=>a.id).join(",");
+  const key=geoKey(A)+"|"+use.map(a=>a.id).join(",");
   if (floorCache.key===key) return floorCache;
   const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH;
   const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.lineCap="round"; g.lineJoin="round";
@@ -2288,7 +2291,7 @@ var LIGHTS={torch:{n:"Torch",b:20,d:20},hooded:{n:"Hooded lantern",b:30,d:30},bu
 function lightingOn(st){ return st.lighting!==false; }
 var fullFloorCache={key:null};
 function fullFloor(st){
-  const A=areasOf(st), key=A.length+"|"+A.map(a=>a.id).join(",");
+  const A=areasOf(st), key=geoKey(A);
   if (fullFloorCache.key===key) return fullFloorCache;
   const cv=document.createElement("canvas"); cv.width=RW; cv.height=RH;
   const g=cv.getContext("2d",{willReadFrequently:true}); g.scale(RS,RS); g.lineCap="round"; g.lineJoin="round"; g.fillStyle=g.strokeStyle="#fff";
