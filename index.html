@@ -601,7 +601,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-25a";
+const APP_VER = "2026-10-25b";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1758,7 +1758,7 @@ function fullFloor(st){ return {key:"lair"}; }
 function ffAt(st,x,y){ return x>=0&&y>=0&&x<ROOM_W&&y<ROOM_H; }
 function lightSources(st){
   const L=[];
-  (st.crystals||[]).forEach(c=>{ if(!c.dead) L.push({x:c.x,y:c.y,b:0,d:Math.round((c.size||10)/2+10)}); });
+  (st.crystals||[]).forEach(c=>{ if(!c.dead) L.push({x:c.x,y:c.y,b:Math.round((c.size||10)/2+20),d:20}); });  // crystals: bright light, then 20 ft of dim
   (st.tokens||[]).forEach(t=>{ if(t.dead||!t.light||t.lightOff) return; const L0=LIGHTS[t.light]; if(!L0) return; L.push({x:t.x,y:t.y,b:L0.b,d:L0.d,cone:L0.cone?(t.face||0):null}); });
   return L;
 }
