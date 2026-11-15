@@ -180,8 +180,9 @@ body.player #board .tok.mvbl{cursor:grab !important}
     <button id="clearPaint" class="dm-only">Clear paint</button>
     <span class="sep"></span>
     <button id="frameBtn" class="dm-only">View: whole mine</button>
-    <select id="measSel" aria-label="Measuring tool"><option value="">Measure: off</option><option value="ruler">Ruler</option><option value="circle">Circle / sphere</option><option value="cone">Cone</option><option value="line">Line</option><option value="cube">Cube</option></select>
+    <select id="measSel" aria-label="Measuring tool"><option value="">Measure: off</option><option value="ruler">Ruler</option><option value="path">Path (click points)</option><option value="circle">Circle / sphere</option><option value="cone">Cone</option><option value="line">Line</option><option value="cube">Cube</option></select>
     <select id="lineW" aria-label="Line width" hidden><option value="5">5 ft wide</option><option value="10">10 ft wide</option><option value="15">15 ft wide</option><option value="20">20 ft wide</option></select>
+    <button id="measFromBtn" class="small" hidden></button>
     <button id="pinMeas" class="dm-only" hidden>Show to players</button>
     <button id="clearPins" class="dm-only" hidden>Clear shown</button>
     <span class="sep"></span>
@@ -344,6 +345,7 @@ const OX = 20, OY = 20, U = 0.5, ROOM_W = 2000, ROOM_H = 4400, RS = 0.5, RW = RO
 // raster lookup index (rasters are stored at half resolution: 1 pixel = 2 ft)
 function rIdx(x,y){ const xi=Math.floor(x*RS), yi=Math.floor(y*RS); return (xi<0||yi<0||xi>=RW||yi>=RH) ? -1 : (yi*RW+xi)*4+3; }
 const STORE_KEY = "arnicite-mines-test-v1";
+function lightDef(k){ return (typeof LIGHTS!=="undefined" && LIGHTS) ? LIGHTS[k] : null; }   // safe before the light list loads
 const FILE_KEY = "arnicite-mines-map-v1";   // backups from the real map load here too
 const TAB = Math.random().toString(36).slice(2);
 const FONT = '"Comic Sans MS","Comic Sans","Comic Neue","Chalkboard SE",cursive';
@@ -504,7 +506,7 @@ function pubExtra(st,t){
   if (t.kind==="party"||t.playerMove){ o.speed=speedOf(t); if (+t.swim>0) o.swim=+t.swim; if (t.canFly){ o.canFly=true; o.fly=+t.fly||speedOf(t); } }
   if (isFlying(t)) o.flying=true;
   if (t.stance) o.stance=t.stance; if (t.facing){ o.facing=true; o.face=t.face||0; } else if (t.light==="bullseye") o.face=t.face||0;
-  if (t.light&&LIGHTS[t.light]){ o.light=t.light; if (t.lightOff) o.lightOff=true; }
+  if (t.light&&lightDef(t.light)){ o.light=t.light; if (t.lightOff) o.lightOff=true; }
   if (t.surprised) o.surprised=true;
   if (t.kind==="party"||t.playerMove){ if (t.stealth) o.stealth=t.stealth; }
   else if (sideOf(t)==="foe"||t.kind==="cart"){ const c=sideOf(t)==="foe"?bestCover(st,t):0; if (c===1||c===2) o.cov=c; }
@@ -673,7 +675,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-10-25e";
+const APP_VER = "2026-11-14a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1164,9 +1166,12 @@ svg.addEventListener("pointerdown", e=>{
     else (S.draws||(S.draws=[])).push({id:uid(),k:ui.draw,c:document.getElementById("drawColor").value,w:+document.getElementById("drawW").value,pts:[[r1(x),r1(y)]]});
     renderBoard(); e.preventDefault(); return; }
   if (MODE==="dm" && ui.env){ ui.envPainting=true; ui.dragging=true; svg.setPointerCapture(e.pointerId); const p=svgPoint(e); ui.envAt={x:(p.x-OX)/U,y:(p.y-OY)/U}; ui.strokeIdx=(S.env||[]).length; ui.strokeFrom=[ui.envAt.x,ui.envAt.y]; envStamp(p,false); renderBoard(); e.preventDefault(); return; }
-  if (ui.measure){ const p=svgPoint(e), tg=e.target.closest(".tok"), t=tg&&tok(tg.dataset.id);
+  if (ui.measure && e.button===2){ e.preventDefault(); return; }
+  if (ui.measure==="path"){ pathClick(e); e.preventDefault(); return; }
+  if (ui.measure){ const p=svgPoint(e), tg=e.target.closest(".tok"), from=ui.measFrom&&tok(ui.measFrom), t=from||(tg&&tok(tg.dataset.id));
     const x0=t?t.x:(p.x-OX)/U, y0=t?t.y:(p.y-OY)/U;
     ui.meas={k:ui.measure,x0,y0,x1:x0,y1:y0,w:+document.getElementById("lineW").value}; ui.measuring=true;
+    if (from){ ui.meas.x1=(p.x-OX)/U; ui.meas.y1=(p.y-OY)/U; ui.measFrozen=false; }
     svg.setPointerCapture(e.pointerId); e.preventDefault(); renderBoard(); return; }
   if (MODE==="dm" && ui.place!=null){ placePreset(svgPoint(e), e.shiftKey); e.preventDefault(); return; }
   if (MODE==="dm" && ui.paint){ painting=true; ui.dragging=true; svg.setPointerCapture(e.pointerId); const p=svgPoint(e); ui.strokeIdx=(S.paint||[]).length; ui.strokeFrom=[(p.x-OX)/U,(p.y-OY)/U]; ui.brushAt={x:ui.strokeFrom[0],y:ui.strokeFrom[1]}; paintAt(p,false); renderBoard(); e.preventDefault(); return; }
@@ -1200,6 +1205,7 @@ svg.addEventListener("pointermove", e=>{
     else if (ui.draw==="erase") renderBoard();
     return; }
   if (MODE==="dm" && ui.env){ const p=svgPoint(e); ui.envAt={x:(p.x-OX)/U,y:(p.y-OY)/U}; if (ui.envPainting) envStamp(p,e.shiftKey); renderBoard(); return; }
+  if (!ui.measuring && measHover(e)) return;
   if (ui.measuring && ui.meas){ const p=svgPoint(e); ui.meas.x1=(p.x-OX)/U; ui.meas.y1=(p.y-OY)/U; renderBoard(); return; }
   if (MODE==="dm" && ui.paint){ const p=svgPoint(e); ui.brushAt={x:(p.x-OX)/U,y:(p.y-OY)/U}; if(painting) paintAt(p,e.shiftKey); renderBoard(); return; }
   if (!drag) return;
@@ -1220,7 +1226,7 @@ svg.addEventListener("pointermove", e=>{
 function endDrag(){
   if (ui.drawing){ ui.drawing=false; ui.dragging=false; commit(); renderBoard(); if (pendingRemote){ const n=pendingRemote; pendingRemote=null; applyRemote(n); } return; }
   if (ui.envPainting){ ui.envPainting=false; ui.dragging=false; ui.strokeFrom=null; commit(); renderBoard(); if (pendingRemote){ const n=pendingRemote; pendingRemote=null; applyRemote(n); } return; }
-  if (ui.measuring){ ui.measuring=false; measUI(); return; }
+  if (ui.measuring){ ui.measuring=false; if (ui.measFrom) ui.measFrozen=true; measUI(); return; }
   if (painting){ painting=false; ui.dragging=false; ui.strokeFrom=null; commit(); renderBoard(); if (pendingRemote){ const n=pendingRemote; pendingRemote=null; applyRemote(n); } return; }
   if (!drag) return; const d=drag; drag=null; ui.dragging=false;
   if (d.moved && d.liveIds){ sendLive(d.liveIds,true); endLive(d.liveIds); }
@@ -1244,7 +1250,7 @@ function endDrag(){
 }
 svg.addEventListener("pointerup",endDrag); svg.addEventListener("pointercancel",endDrag);
 svg.addEventListener("pointerdown", e=>{ if (MODE!=="dm"){ const tg=e.target.closest(".tok"); ui.pDownTok=tg?tg.dataset.id:null; } },true);
-svg.addEventListener("click", e=>{ if (MODE!=="dm"){ const t=ui.pDownTok&&tok(ui.pDownTok); ui.pSel = t&&t.pick ? t.id : null; renderBoard(); renderPSel(); return; } if (!e.target.closest(".tok") && !e.target.closest(".crystal") && (ui.sel.length||ui.selCrystal)){ ui.sel=[]; ui.selCrystal=null; renderAll(); } });
+svg.addEventListener("click", e=>{ if (ui.measure) return; if (MODE!=="dm"){ const t=ui.pDownTok&&tok(ui.pDownTok); ui.pSel = t&&t.pick ? t.id : null; renderBoard(); renderPSel(); return; } if (!e.target.closest(".tok") && !e.target.closest(".crystal") && (ui.sel.length||ui.selCrystal)){ ui.sel=[]; ui.selCrystal=null; renderAll(); } });
 
 // selected panel
 function groupSelectOptions(current){
@@ -2038,7 +2044,7 @@ function drawTemplate(m,pinned){
 }
 function drawTemplates(){
   (S.templates||[]).forEach(m=>drawTemplate(m,true));
-  if (ui.meas) drawTemplate(ui.meas,false);
+  if (ui.meas) (ui.meas.k==="path"?drawPath:drawTemplate)(ui.meas,false);
 }
 function measUI(){
   const k=document.getElementById("measSel").value;
@@ -2138,7 +2144,7 @@ if (MODE==="player"){
   document.body.classList.add("player");
   if (PREVIEW){
     const fromLocal=()=>{ const st=loadLocal()||shippedState(); S=asPlayerState(publicView(st)); };
-    fromLocal(); setStatus("Player view preview");
+    try { fromLocal(); } catch(e){ S=asPlayerState(publicView(shippedState())); } setStatus("Player view preview");
     window.addEventListener("storage", e=>{ if (e.key===STORE_KEY){ fromLocal(); renderAll(); } });
   } else {
     S=asPlayerState(publicView(shippedState())); setStatus("Connecting…");
@@ -2320,7 +2326,7 @@ function ffAt(st,x,y){ const i=rIdx(x,y); return i>=0 && fullFloor(st).d[i]>=128
 function lightSources(st){
   const L=[];
   decoOf(st).forEach(d=>{ if(d.t==="lamp"&&!d.out){ const r=d.r||20; L.push({x:d.x,y:d.y,b:r,d:r}); } });
-  (st.tokens||[]).forEach(t=>{ if(t.dead||!t.light||t.lightOff) return; const L0=LIGHTS[t.light]; if(!L0) return; L.push({x:t.x,y:t.y,b:L0.b,d:L0.d,cone:L0.cone?(t.face||0):null}); });
+  (st.tokens||[]).forEach(t=>{ if(t.dead||!t.light||t.lightOff) return; const L0=lightDef(t.light); if(!L0) return; L.push({x:t.x,y:t.y,b:L0.b,d:L0.d,cone:L0.cone?(t.face||0):null}); });
   return L;
 }
 function lightKey(st){ if(!lightingOn(st)) return "off"; return JSON.stringify(lightSources(st))+"|"+areasOf(st).map(a=>a.light||"").join(",")+"|"+(st.setup&&st.setup.lakeDark?"":"lk")+"|"+JSON.stringify((st.env||[]).filter(z=>z.k==="magic"||z.k==="dm"))+"|"+JSON.stringify((st.draws||[]).filter(d=>d.k==="wall")); }
@@ -2513,7 +2519,7 @@ function checkSurprise(){ const C=combatants(S); let n=0; C.forEach(c=>{ const e
 // token decorations: hiding, stance, facing, carried light, distracted, cover badge
 function tokFx(t,g,r){
   const dm=MODE==="dm";
-  if (t.light && !t.lightOff && LIGHTS[t.light]){ const c=el("circle",{r:Math.min(LIGHTS[t.light].b,30),fill:"url(#lampglow)",opacity:0.9,"pointer-events":"none"},g); g.insertBefore(c,g.firstChild); }
+  if (t.light && !t.lightOff && lightDef(t.light)){ const c=el("circle",{r:Math.min(lightDef(t.light).b,30),fill:"url(#lampglow)",opacity:0.9,"pointer-events":"none"},g); g.insertBefore(c,g.firstChild); }
   if (t.stealth){ g.setAttribute("opacity","0.6"); el("circle",{r:r+Math.max(1.8,r*0.4),fill:"none",stroke:"#9B7FE0","stroke-width":Math.max(0.6,r*0.12),"stroke-dasharray":"1.4 1.2"},g);
     if (dm||t.kind==="party"){ const s=el("text",{y:-r-Math.max(2.4,r*0.5),"text-anchor":"middle","font-family":FONT,"font-size":Math.max(2.6,Math.min(5,r*0.8)),"font-weight":700,fill:"#6B52C0"},g); s.textContent="hiding "+t.stealth; } }
   if (t.facing || (!dm && t.face!=null)){ const a=(t.face||0)*Math.PI/180, R=r+Math.max(2.2,r*0.5); el("path",{d:`M${Math.cos(a)*R} ${Math.sin(a)*R}L${Math.cos(a+0.45)*(r+0.4)} ${Math.sin(a+0.45)*(r+0.4)}L${Math.cos(a-0.45)*(r+0.4)} ${Math.sin(a-0.45)*(r+0.4)}Z`,fill:"#C99A1A"},g); }
@@ -2581,7 +2587,7 @@ function playerStealthBlock(t){
   const box=document.createElement("div"); box.style.cssText="margin-top:8px;padding-top:6px;border-top:1px solid var(--line);font-size:14px";
   box.innerHTML=`${t.stealth?`<div style="margin-bottom:4px"><b>Hiding</b> · Stealth ${t.stealth}</div>`:""}
     <div class="row" style="gap:6px;flex-wrap:wrap"><label class="row" style="gap:4px">Stance <select id="psStance" ${can?"":"disabled"}><option value="">Standing</option><option value="crouch" ${t.stance==="crouch"?"selected":""}>Crouching</option><option value="prone" ${t.stance==="prone"?"selected":""}>Prone</option></select></label>
-      ${t.light&&LIGHTS[t.light]?`<button class="small" id="psLight" ${can?"":"disabled"}>${t.lightOff?"Light "+LIGHTS[t.light].n.toLowerCase():"Put out "+LIGHTS[t.light].n.toLowerCase()}</button>`:""}</div>
+      ${t.light&&lightDef(t.light)?`<button class="small" id="psLight" ${can?"":"disabled"}>${t.lightOff?"Light "+lightDef(t.light).n.toLowerCase():"Put out "+lightDef(t.light).n.toLowerCase()}</button>`:""}</div>
     ${can?`<div class="row" style="gap:6px;margin-top:6px">${t.stealth?`<button class="small" id="psUnhide">Stop hiding</button>`:`<input id="psRoll" type="number" placeholder="Stealth roll" style="width:100px"><button class="small" id="psHide">Hide</button>`}</div>
       <div class="row" style="gap:6px;margin-top:6px"><input id="psSRoll" type="number" placeholder="Perception roll" style="width:110px"><button class="small" id="psSearch">Search</button></div>`
       :`<p class="muted" style="margin:4px 0 0;font-size:13px">Hide, Search and stance work when this token is yours to move.</p>`}`;
@@ -2611,6 +2617,98 @@ function playerStealthBlock(t){
     const _du=decoUI; decoUI=function(){ _du(); const d=ui.decoEdit&&ui.decoSel!=null?decoList()[ui.decoSel]:null; b.hidden=!(d&&d.t==="lamp"); }; } }
 
 try { renderAll(); } catch(e){}
+// ---- path ruler, measuring from a token, right-click movement path ----
+var measRaf=0;
+function measRedraw(){ if (measRaf) return; measRaf=requestAnimationFrame(()=>{ measRaf=0; renderBoard(); }); }
+function pathBudget(t){ if (!t||!S.battle||t.dead) return null; if (MODE==="dm") return t.kind==="cart"?null:moveLeft(t); return t.left!=null?Math.max(0,t.left):null; }
+function pathCostSeg(t,a,b){
+  const d=Math.hypot(b[0]-a[0],b[1]-a[1]); if (!t||!S.battle) return d;
+  try {
+    if (isFlying(t)) return d*flyCost(t);
+    const n=Math.max(1,Math.ceil(d/2)), seg=d/n, slow=!t.noTerrain&&(S.env||[]).some(z=>z.k==="terrain"); let c=0;
+    for (let i=0;i<n;i++){ const k=(i+0.5)/n, x=a[0]+(b[0]-a[0])*k, y=a[1]+(b[1]-a[1])*k; let wet=false; try { wet=inWater(S,x,y); } catch(e){}
+      c+=seg*((wet?waterCost(t):1)+(slow&&envAt(S,"terrain",x,y)?1:0))*(t.stance?2:1); }
+    return c;
+  } catch(e){ return d; }
+}
+function drawPath(m){
+  const t=m.from&&tok(m.from), pts=m.pts.map(p=>p.slice()); if (t&&pts.length) pts[0]=[t.x,t.y];
+  if (!m.done && m.x1!=null && pts.length){ const l=pts[pts.length-1]; if (Math.hypot(l[0]-m.x1,l[1]-m.y1)>0.5) pts.push([m.x1,m.y1]); }
+  if (!pts.length) return;
+  const bud=pathBudget(t), OKC="#1D9E75", OVER="#D8452F", C=bud==null?"#E8B931":OKC, g=el("g",{"pointer-events":"none"},svg);
+  if (bud!=null) el("circle",{cx:fx(t.x),cy:fy(t.y),r:bud*U,fill:OKC,"fill-opacity":0.05,stroke:OKC,"stroke-width":1.5,"stroke-dasharray":"6 5"},g);
+  const seg=(a,b,c)=>{ el("line",{x1:fx(a[0]),y1:fy(a[1]),x2:fx(b[0]),y2:fy(b[1]),stroke:"#1E1A15","stroke-width":5,"stroke-linecap":"round","stroke-opacity":0.55},g); el("line",{x1:fx(a[0]),y1:fy(a[1]),x2:fx(b[0]),y2:fy(b[1]),stroke:c,"stroke-width":3,"stroke-linecap":"round"},g); };
+  let tot=0, cost=0;
+  for (let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i], c=pathCostSeg(t,a,b);
+    if (bud!=null && cost<bud && cost+c>bud+0.01){ const k=(bud-cost)/c, mid=[a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k]; seg(a,mid,OKC); seg(mid,b,OVER); el("circle",{cx:fx(mid[0]),cy:fy(mid[1]),r:4.5,fill:"#fff",stroke:OVER,"stroke-width":2},g); }
+    else seg(a,b,bud!=null&&cost>=bud?OVER:C);
+    tot+=Math.hypot(b[0]-a[0],b[1]-a[1]); cost+=c; }
+  pts.forEach((p,i)=>el("circle",{cx:fx(p[0]),cy:fy(p[1]),r:i&&i<pts.length-1?3:3.5,fill:i?C:"#fff",stroke:"#1E1A15","stroke-width":1},g));
+  const ft=Math.round(tot); let txt, bc=C;
+  if (pts.length<2) txt=bud!=null?Math.floor(bud)+" ft of movement left":"Click to add points";
+  else if (bud==null) txt=ft+" ft ("+Math.round(ft/5)+" sq)";
+  else if (cost>bud+0.5){ txt=Math.round(cost)+" ft · "+Math.ceil(cost-bud-0.01)+" ft too far"; bc=OVER; }
+  else txt=Math.round(cost)+" ft · "+Math.floor(bud-cost+0.01)+" ft left";
+  const e=pts[pts.length-1], w=txt.length*7+14, lx=fx(e[0]), ly=fy(e[1])-18;
+  el("rect",{x:lx-w/2,y:ly-11,width:w,height:22,rx:11,fill:"#1E1A15","fill-opacity":0.88,stroke:bc,"stroke-width":1.5},g);
+  const tx=el("text",{x:lx,y:ly+0.5,"text-anchor":"middle","dominant-baseline":"central","font-family":FONT,"font-size":13,"font-weight":700,fill:"#fff"},g); tx.textContent=txt;
+}
+function pathClick(e){
+  const p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U, tg=e.target.closest(".tok"), ht=tg&&tok(tg.dataset.id), rd=v=>Math.round(v*10)/10;
+  let m=ui.meas;
+  if (!m||m.k!=="path"||m.done){ const at=(ui.measFrom&&tok(ui.measFrom))||ht;
+    m=ui.meas={k:"path",pts:[at?[at.x,at.y]:[rd(x),rd(y)]],from:at?at.id:null};
+    if (at && !(ht&&ht.id===at.id) && Math.hypot(at.x-x,at.y-y)>1) m.pts.push([rd(x),rd(y)]);
+  } else { const l=m.pts[m.pts.length-1];
+    if (m.pts.length>1 && Math.hypot(l[0]-x,l[1]-y)<Math.max(1.5,6/(U*(ui.zoom||1)))) m.done=true; else m.pts.push([rd(x),rd(y)]); }
+  m.x1=x; m.y1=y; renderBoard(); measUI();
+}
+function measHover(e){
+  if (!ui.measure) return false; const p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U;
+  if (ui.measure==="path"){ const m=ui.meas; if (m&&m.k==="path"&&!m.done){ m.x1=x; m.y1=y; measRedraw(); } return true; }
+  if (ui.measFrom && !ui.measuring && !ui.measFrozen){ const t=tok(ui.measFrom); if (!t) return false;
+    ui.meas={k:ui.measure,x0:t.x,y0:t.y,x1:x,y1:y,w:+document.getElementById("lineW").value}; measRedraw(); return true; }
+  return false;
+}
+function startMeasFrom(id,k){
+  const t=tok(id); if (!t) return;
+  if (MODE==="dm"){ if (ui.draw||ui.env||ui.decoEdit) return; if (ui.place!=null){ ui.place=null; if (typeof renderPresets==="function") renderPresets(); } if (ui.paint && typeof setPaint==="function") setPaint(ui.paint); }
+  ui.measFrom=id; ui.measure=k; ui.measFrozen=false; ui.measuring=false; document.getElementById("measSel").value=k;
+  ui.meas = k==="path" ? {k:"path",pts:[[t.x,t.y]],from:id,x1:t.x,y1:t.y} : null;
+  svg.style.cursor="crosshair"; measUI(); renderBoard();
+  const nm=t.name||t.label||"this token", b=pathBudget(t);
+  setStatus(k==="path" ? "Path from "+nm+(b!=null?" ("+Math.floor(b)+" ft of movement left)":"")+": click to add points, double-click or right-click to finish, Esc to clear."
+    : "Measuring from "+nm+": move the pointer to aim, click to hold it in place.");
+}
+const MEAS_KINDS=[["path","Path"],["ruler","Ruler"],["circle","Circle"],["cone","Cone"],["line","Line"],["cube","Cube"]];
+function measRow(t){ return `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px"><span class="muted" style="font-size:13px">Measure from here</span>${MEAS_KINDS.map(([k,n])=>`<button class="small${ui.measFrom===t.id&&ui.measure===k?" primary":""}" data-meas="${k}">${n}</button>`).join("")}</div>`; }
+function measWire(box,t){ box.querySelectorAll("[data-meas]").forEach(b=>b.onclick=ev=>{ ev.stopPropagation(); const k=b.dataset.meas;
+  if (ui.measFrom===t.id&&ui.measure===k){ ui.measFrom=null; ui.measure=null; ui.meas=null; document.getElementById("measSel").value=""; svg.style.cursor=""; measUI(); renderBoard(); }
+  else startMeasFrom(t.id,k);
+  if (MODE==="dm") renderSel(); else renderPSel(); }); }
+{ const _mu=measUI; measUI=function(){ _mu(); const b=document.getElementById("measFromBtn"), t=ui.measFrom&&tok(ui.measFrom); if (ui.measFrom&&!t) ui.measFrom=null;
+    if (b){ b.hidden=!(t&&ui.measure); if (t) b.textContent="From: "+(t.name||t.label||"token")+" ✕"; }
+    if (ui.meas&&ui.meas.k==="path"){ const pm=document.getElementById("pinMeas"); if (pm) pm.hidden=true; } };
+  const fb=document.getElementById("measFromBtn"); if (fb) fb.onclick=()=>{ ui.measFrom=null; ui.measFrozen=false; if (ui.meas&&ui.meas.k==="path") ui.meas.from=null; else ui.meas=null; measUI(); renderBoard(); if (MODE==="dm") renderSel(); else renderPSel(); };
+  document.getElementById("measSel").addEventListener("change",e=>{ ui.measFrozen=false; if (!e.target.value) ui.measFrom=null;
+    else if (e.target.value==="path") setStatus("Path: click to add points (start on a token to track its movement), double-click or right-click to finish, Esc to clear.");
+    measUI(); if (MODE==="dm") renderSel(); else renderPSel(); });
+  svg.addEventListener("contextmenu",e=>{ let tg=e.target.closest&&e.target.closest(".tok");
+    if (!tg) for (const n of document.elementsFromPoint(e.clientX,e.clientY)){ const k=n.closest&&n.closest(".tok"); if (k){ tg=k; break; } }
+    const t=tg&&tok(tg.dataset.id);
+    if (ui.measure==="path" && ui.meas && ui.meas.k==="path" && !ui.meas.done && ui.meas.pts.length>1 && !(t&&ui.meas.from!==t.id)){ e.preventDefault(); ui.meas.done=true; renderBoard(); return; }
+    if (!t) return; if (MODE==="dm" && (ui.draw||ui.env||ui.decoEdit)) return;
+    e.preventDefault(); startMeasFrom(t.id,"path"); if (MODE==="dm") renderSel(); else renderPSel(); });
+  document.addEventListener("keydown",e=>{ const m=ui.meas; if (!m||m.k!=="path") { if (e.key==="Escape"&&ui.measFrom){ ui.measFrozen=false; } return; }
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||"")) return;
+    if (e.key==="Enter"&&!m.done){ m.done=true; renderBoard(); } else if (e.key==="Backspace"&&m.pts.length>1){ m.pts.pop(); m.done=false; renderBoard(); e.preventDefault(); } });
+  const _rp=renderPSel; renderPSel=function(){ _rp(); const t=ui.pSel&&tok(ui.pSel), box=document.getElementById("pSelBody"); if (t&&t.pick&&box){ box.insertAdjacentHTML("beforeend",measRow(t)); measWire(box,t); } };
+  const _rs=renderSel; renderSel=function(){ _rs(); if (MODE!=="dm"||ui.selCrystal||!ui.sel||ui.sel.length!==1) return; const t=tok(ui.sel[0]), box=document.getElementById("selBody"); if (t&&box){ box.insertAdjacentHTML("beforeend",measRow(t)); measWire(box,t); } };
+}
+// the offline player preview builds its view before the lighting code has loaded: build it again now
+if (PREVIEW){ try { S=asPlayerState(publicView(loadLocal()||shippedState())); renderAll(); } catch(e){} }
+try { measUI(); } catch(e){}
+
 })();
 </script>
 </body>
