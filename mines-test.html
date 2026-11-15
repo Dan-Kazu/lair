@@ -675,7 +675,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-14a";
+const APP_VER = "2026-11-14b";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1809,8 +1809,10 @@ document.getElementById("setupFile").onchange=async e=>{
   S.notes.push({id:uid(),text:empty?"Setup loaded.":"Setup loaded. Your current map was kept; Reset map starts from the setup.",round:S.round,at:Date.now()});
   commit(); renderAll(); setStatus("Setup loaded.");
 };
-function presetsOf(){ return S.presets || (S.setup&&S.setup.presets) || []; }
-function ownPresets(){ if(!S.presets) S.presets=clone(presetsOf()); return S.presets; }
+// built-in bestiary presets: shown after the board's own until the list is edited, then saved with it
+const XPRE_V=1, XPRE=[{"label":"RP","name":"Corrupted Roper","hp":450,"size":10,"speed":20,"corrupt":1},{"label":"RP","name":"Hate Roper","hp":370,"size":10,"speed":25},{"label":"PC","name":"Corrupted Piercer","hp":170,"size":5,"speed":20,"corrupt":1},{"label":"PC","name":"Hate Piercer","hp":120,"size":5,"speed":20},{"label":"CC","name":"Corrupted Carrion Crawler","hp":310,"size":10,"speed":50,"corrupt":1},{"label":"CC","name":"Hate Carrion Crawler","hp":220,"size":10,"speed":70},{"label":"GK","name":"Corrupted Grick","hp":200,"size":5,"speed":40,"corrupt":1},{"label":"GK","name":"Hate Grick","hp":140,"size":5,"speed":40},{"label":"HH","name":"Corrupted Hook Horror","hp":340,"size":10,"speed":40,"corrupt":1},{"label":"HH","name":"Hate Hook Horror","hp":240,"size":10,"speed":40},{"label":"UH","name":"Corrupted Umber Hulk","hp":480,"size":10,"speed":40,"corrupt":1},{"label":"UH","name":"Hate Umber Hulk","hp":340,"size":10,"speed":40},{"label":"RM","name":"Corrupted Rust Monster","hp":230,"size":5,"speed":50,"corrupt":1},{"label":"RM","name":"Hate Rust Monster","hp":160,"size":5,"speed":50},{"label":"WW","name":"Corrupted Will-o'-Wisp","hp":170,"size":2.5,"speed":60,"corrupt":1,"canFly":true,"fly":60},{"label":"WW","name":"Hate Will-o'-Wisp","hp":120,"size":2.5,"speed":60,"canFly":true,"fly":60},{"label":"NW","name":"Corrupted Nightwalker","hp":780,"size":15,"speed":50,"corrupt":1},{"label":"NW","name":"Hate Nightwalker","hp":560,"size":15,"speed":50},{"label":"BH","name":"Corrupted Behir","hp":620,"size":15,"speed":60,"corrupt":1},{"label":"BH","name":"Hate Behir","hp":440,"size":15,"speed":60},{"label":"BK","name":"Corrupted Basilisk","hp":310,"size":5,"speed":30,"corrupt":1},{"label":"BK","name":"Hate Basilisk","hp":220,"size":5,"speed":30},{"label":"FG","name":"Corrupted Froghemoth","hp":730,"size":15,"speed":40,"corrupt":1,"swim":40},{"label":"FG","name":"Hate Froghemoth","hp":520,"size":15,"speed":40,"swim":40}];
+function presetsOf(){ const base=S.presets || (S.setup&&S.setup.presets) || []; if (S.presets && S.xpre===XPRE_V) return base; return base.concat(XPRE.filter(e=>!base.some(b=>b.name===e.name))); }
+function ownPresets(){ if(!S.presets || S.xpre!==XPRE_V){ S.presets=clone(presetsOf()); S.xpre=XPRE_V; } return S.presets; }
 function renderPresets(){
   const box=document.getElementById("presetList"); if(!box) return; box.innerHTML="";
   const list=presetsOf();
