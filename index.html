@@ -603,7 +603,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-14b";
+const APP_VER = "2026-11-14c";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1320,13 +1320,15 @@ function renderPlayerInit(){
     li.innerHTML=(e.color?`<span class="gdot" style="background:${e.color}"></span>`:"")+esc(e.name); ol.appendChild(li); });
   if (!(S.init||[]).length){ const li=document.createElement("li"); li.className="muted"; li.textContent="No initiative yet."; ol.appendChild(li); }
 }
-const STATS=()=> (S.setup&&S.setup.stat)||{};
+// the built-in hate bestiary can be incubated too: code = its label, with speed and swim/fly carried along
+const STATS=()=>{ const o={}; XPRE.forEach(p=>{ if(!p.corrupt) o[p.label]=[p.name,p.hp,p.size,0,null,p]; }); return Object.assign(o,(S.setup&&S.setup.stat)||{}); };
 function spawn(code,x,y){
   const st=STATS()[code]; if(!st) return null;
   const corrupt=code[0]==="c", lab=corrupt?code.slice(1):code, [base,hp,size,dash,shape]=st;
   const n=S.tokens.filter(t=>t.name.startsWith(base+" ")).length+1;
   const t={id:uid(),label:lab,name:base+" "+n,kind:"amalgam",x,y,size,hp,max:hp,dead:false,dash:!!dash,corrupt};
   if (shape) t.shape=shape;
+  const ex=st[5]; if (ex){ t.speed=ex.speed; if (ex.swim) t.swim=ex.swim; if (ex.canFly){ t.canFly=true; t.fly=ex.fly; } }
   S.tokens.push(t); return t;
 }
 function spawnPicked(){
@@ -1356,7 +1358,7 @@ function renderSetup(){
   const su=S.setup||{}, inc=su.incubate, sel=document.getElementById("incKind"), ib=document.getElementById("incBtn");
   sel.hidden=ib.hidden=!inc; document.getElementById("phaseBtn").hidden=!su.reinforce;
   if (inc){ ib.textContent=inc.button||"Spawn"; const cur=sel.value;
-    sel.innerHTML=(inc.kinds||[]).map(([c,l])=>`<option value="${esc(c)}">${esc(l)}</option>`).join(""); if(cur) sel.value=cur; if(!sel.value&&sel.options.length) sel.selectedIndex=0; }
+    sel.innerHTML=(inc.kinds||[]).concat(XPRE.filter(p=>!p.corrupt&&!(inc.kinds||[]).some(k=>k[0]===p.label)).map(p=>[p.label,p.name.replace(/^Hate /,"")])).map(([c,l])=>`<option value="${esc(c)}">${esc(l)}</option>`).join(""); if(cur) sel.value=cur; if(!sel.value&&sel.options.length) sel.selectedIndex=0; }
   const sb=document.getElementById("setupBtn"); sb.classList.toggle("primary",!S.setup); sb.textContent=S.setup?"Reload setup file":"Load setup file";
   sb.title=S.setup?"Replace the private setup data stored with this board":"Load your private setup file (kept off the website)";
 }
