@@ -2771,8 +2771,7 @@ try { measUI(); } catch(e){}
     renderAll();
     if(ui.zoom<2 && typeof zoomTo==="function") zoomTo(2);
     setTimeout(()=>{ const g=svg.querySelector(`.tok[data-id="${CSS.escape(t.id)}"]`); if(!g) return;
-      const r=g.getBoundingClientRect(), b=boardbox.getBoundingClientRect();
-      boardbox.scrollBy({left:r.left+r.width/2-(b.left+b.width/2), top:r.top+r.height/2-(b.top+b.height/2), behavior:"smooth"});
+      g.scrollIntoView({block:"center",inline:"center",behavior:"smooth"});
       const rad=Math.max(14,(t.size||5)/2*U+8);
       const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
       c.setAttribute("r",rad); c.setAttribute("fill","none"); c.setAttribute("stroke",cssVar("--accent")); c.setAttribute("class","findPing"); c.style.pointerEvents="none";
