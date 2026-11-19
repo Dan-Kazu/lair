@@ -675,7 +675,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-14b";
+const APP_VER = "2026-11-19a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -2710,6 +2710,91 @@ function measWire(box,t){ box.querySelectorAll("[data-meas]").forEach(b=>b.oncli
 // the offline player preview builds its view before the lighting code has loaded: build it again now
 if (PREVIEW){ try { S=asPlayerState(publicView(loadLocal()||shippedState())); renderAll(); } catch(e){} }
 try { measUI(); } catch(e){}
+
+// ---- DM: find a token by name, kind, group or area ----
+(function(){
+  const side=document.querySelector(".side"); if(!side || document.getElementById("findCard")) return;
+  const st=document.createElement("style");
+  st.textContent=`#findQ{width:100%;box-sizing:border-box}
+#findList{list-style:none;margin:6px 0 0;padding:0;max-height:260px;overflow:auto}
+#findList li{display:flex;gap:6px;align-items:baseline;justify-content:space-between;padding:4px 6px;border-radius:6px;cursor:pointer}
+#findList li:hover,#findList li.on{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+#findList .fm{font-size:12px;opacity:.75;white-space:nowrap}
+#findList .fx{text-decoration:line-through;opacity:.6}
+@keyframes findPing{0%{opacity:1;stroke-width:6}100%{opacity:0;stroke-width:1}}
+.findPing{animation:findPing 1.1s ease-out 3}`;
+  document.head.appendChild(st);
+  const card=document.createElement("section"); card.className="card dm-only"; card.id="findCard";
+  card.innerHTML=`<h2>Find a token</h2>
+<input id="findQ" type="search" placeholder="Name, group or area… (press / to search)" autocomplete="off" aria-label="Find a token">
+<div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap">
+  <label class="row" style="gap:4px"><input type="checkbox" id="findDead"> Include dead</label>
+  <button class="small" id="findAll" disabled>Select all matches</button>
+  <span class="muted" id="findCount" style="font-size:12px"></span>
+</div>
+<ul id="findList"></ul>`;
+  side.insertBefore(card, side.querySelector("section.dm-only") || side.firstChild);
+  const q=card.querySelector("#findQ"), list=card.querySelector("#findList"), cnt=card.querySelector("#findCount"), allB=card.querySelector("#findAll"), deadC=card.querySelector("#findDead");
+  let hits=[], cur=0;
+  const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const areaName=t=>{ try{ if(typeof areaAt==="function"){ const a=areaAt(t.x,t.y); if(a) return (a.id||"")+(a.name?" "+a.name:""); } }catch(e){} return ""; };
+  const groupName=t=>{ try{ const g=S.groups&&S.groups.find(g=>g.members.includes(t.id)); return g?(g.name||""):""; }catch(e){ return ""; } };
+  function search(){
+    const words=q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const keep=hits[cur]&&hits[cur].t.id; hits=[]; cur=0;
+    if(words.length) S.tokens.forEach(t=>{
+      if(t.door) return;
+      if(t.dead && !deadC.checked) return;
+      const ar=areaName(t), gr=groupName(t), hay=[t.name,t.kind,gr,ar,t.hidden?"hidden":""].join(" ").toLowerCase();
+      if(!words.every(w=>hay.includes(w))) return;
+      const nm=(t.name||"").toLowerCase(), w0=words.join(" ");
+      const score=nm===w0?0:nm.startsWith(w0)?1:nm.includes(w0)?2:3;
+      hits.push({t,ar,gr,score});
+    });
+    hits.sort((a,b)=>a.score-b.score||String(a.t.name).localeCompare(String(b.t.name),undefined,{numeric:true}));
+    if(keep){ const k=hits.findIndex(h=>h.t.id===keep); if(k>=0&&k<60) cur=k; }
+    draw();
+  }
+  function draw(){
+    const shown=hits.slice(0,60);
+    list.innerHTML=shown.map((h,i)=>{ const t=h.t, hp=t.max?` · ${t.hp??t.max}/${t.max} HP`:"";
+      const tags=[t.hidden?"hidden":"",t.dead?"dead":""].filter(Boolean).join(", ");
+      return `<li data-i="${i}" class="${i===cur?"on":""}" title="Show on the map"><span class="${t.dead?"fx":""}">${esc(t.name||"(unnamed)")}</span><span class="fm">${esc([h.ar,h.gr].filter(Boolean).join(" · "))}${hp}${tags?" · "+tags:""}</span></li>`; }).join("");
+    cnt.textContent=q.value.trim()?(hits.length?hits.length+" found"+(hits.length>60?" (showing 60)":""):"No tokens match"):"";
+    allB.disabled=!hits.length;
+    list.querySelectorAll("li").forEach(li=>li.onclick=()=>{ cur=+li.dataset.i; draw(); go(hits[cur].t); });
+  }
+  function go(t){
+    ui.sel=[t.id]; ui.selCrystal=null;
+    // a token outside what players can see is cut off by the players' framing, so show the whole map
+    if(ui.frame){ const p=[fx(t.x),fy(t.y)], v=vbTarget||vbCur; if(v && (p[0]<v[0]||p[1]<v[1]||p[0]>v[0]+v[2]||p[1]>v[1]+v[3])) ui.frame=false; }
+    renderAll();
+    if(ui.zoom<2 && typeof zoomTo==="function") zoomTo(2);
+    setTimeout(()=>{ const g=svg.querySelector(`.tok[data-id="${CSS.escape(t.id)}"]`); if(!g) return;
+      const r=g.getBoundingClientRect(), b=boardbox.getBoundingClientRect();
+      boardbox.scrollBy({left:r.left+r.width/2-(b.left+b.width/2), top:r.top+r.height/2-(b.top+b.height/2), behavior:"smooth"});
+      const rad=Math.max(14,(t.size||5)/2*U+8);
+      const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+      c.setAttribute("r",rad); c.setAttribute("fill","none"); c.setAttribute("stroke",cssVar("--accent")); c.setAttribute("class","findPing"); c.style.pointerEvents="none";
+      g.appendChild(c); setTimeout(()=>c.remove(),3400);
+    }, 450);
+    setStatus("Found "+(t.name||"token")+(t.hidden?" (hidden from players)":""));
+  }
+  q.addEventListener("input",search); deadC.onchange=search;
+  q.addEventListener("keydown",e=>{
+    if(e.key==="ArrowDown"||e.key==="ArrowUp"){ if(!hits.length) return; e.preventDefault(); cur=(cur+(e.key==="ArrowDown"?1:-1)+Math.min(hits.length,60))%Math.min(hits.length,60); draw(); const li=list.querySelector("li.on"); if(li) li.scrollIntoView({block:"nearest"}); }
+    else if(e.key==="Enter"){ e.preventDefault(); if(hits[cur]) go(hits[cur].t); }
+    else if(e.key==="Escape"){ q.value=""; search(); q.blur(); }
+    e.stopPropagation();
+  });
+  allB.onclick=()=>{ if(!hits.length) return; ui.sel=hits.map(h=>h.t.id); ui.selCrystal=null; renderAll(); setStatus(ui.sel.length+" selected"); };
+  document.addEventListener("keydown",e=>{
+    if(MODE!=="dm"||e.key!=="/"||e.ctrlKey||e.metaKey||e.altKey) return;
+    const a=document.activeElement; if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.tagName==="SELECT"||a.isContentEditable)) return;
+    e.preventDefault(); card.scrollIntoView({block:"nearest"}); q.focus(); q.select();
+  });
+  const _ra=renderAll; renderAll=function(){ _ra.apply(this,arguments); if(q.value.trim()) search(); };
+})();
 
 })();
 </script>
