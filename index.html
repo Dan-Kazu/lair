@@ -2776,7 +2776,8 @@ if (typeof spawn==="function"){ const _sp=spawn; spawn=function(){ const t=_sp.a
 (function(){
   const J=v=>{ const s=JSON.stringify(v); return s===undefined?null:s; };
   // vision polygons are long lists of points: send them as small integer steps instead
-  const encVis=v=>{ if (!Array.isArray(v)) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
+  const encVis=v=>{ try{ return encVis0(v); }catch(e){ return null; } };
+  const encVis0=v=>{ if (!Array.isArray(v) || !v.every(P=>Array.isArray(P) && P.every(p=>Array.isArray(p) && p.length===2 && isFinite(p[0]) && isFinite(p[1])))) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
     return "~"+f+"|"+v.map(P=>{ let px=0,py=0; return P.map(p=>{ const x=Math.round(p[0]*f), y=Math.round(p[1]*f), s=(x-px)+","+(y-py); px=x; py=y; return s; }).join(";"); }).join("|"); };
   const decVis=s=>{ const a=s.slice(1).split("|"), f=+a[0]; return a.slice(1).map(P=>{ let x=0,y=0; return P?P.split(";").map(q=>{ const [dx,dy]=q.split(","); x+=+dx; y+=+dy; return [x/f,y/f]; }):[]; }); };
   function flat(o,split){            // split: {tokens:true, setup:true}
