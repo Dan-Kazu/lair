@@ -677,7 +677,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20d";
+const APP_VER = "2026-11-20e";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3073,7 +3073,7 @@ function emoIcon(i){
     document.getElementById("battleBtn").after(b);
     b.onclick=ev=>{ ev.stopPropagation(); const old=document.getElementById("emoPanel"); if (old){ old.remove(); return; }
       const P=document.createElement("div"); P.id="emoPanel"; const party=(S.tokens||[]).filter(t=>t.kind==="party");
-      P.innerHTML=`<b>Who can use emotes &amp; markers</b>${party.map(t=>`<label><input type="checkbox" data-id="${t.id}" ${fxOk[t.id]?"checked":""}> ${String(t.name||t.label).replace(/</g,"&lt;")}</label>`).join("")}
+      P.innerHTML=`<b>Who can use emotes, markers &amp; objects</b>${party.map(t=>`<label><input type="checkbox" data-id="${t.id}" ${fxOk[t.id]?"checked":""}> ${String(t.name||t.label).replace(/</g,"&lt;")}</label>`).join("")}
         <div style="display:flex;gap:6px;margin-top:6px"><button class="small" data-all="1">All on</button><button class="small" data-all="0">All off</button><button class="small" data-clear="1" title="Remove every pinned marker">Clear pins</button></div>`;
       const set=(id,on)=>{ fxOk[id]=on||undefined; if (fbRoot) fbRoot.child("fxOk/"+id).set(on?true:null).catch(()=>setStatus("Couldn't save: the database rules need the emote update")); };
       P.querySelectorAll("input[data-id]").forEach(c=>c.onchange=()=>set(c.dataset.id,c.checked));
@@ -3163,6 +3163,190 @@ function emoIcon(i){
         if (Number.isInteger(r.c)&&COLS[r.c]) { t.col=r.c; ch=true; } if (Number.isInteger(r.f)&&FONTS[r.f]) { t.font=r.f; ch=true; } }
       if (ch){ commit(); renderAll(); } },()=>{}); };
     setInterval(hook,1500); hook(); }
+})();
+
+// ---- objects players can pick up, push and pull ----
+(function(){
+  const FX_OK=()=>window.__fxOk||{};
+  // default handling for each kind of map feature
+  function handling(d){
+    if (d.h) return d.h;
+    if (d.t==="lamp"||d.t==="tent") return "carry";
+    if (d.t==="circ" && /^#B39B6E$/i.test(d.f||"")) return "carry";                       // supply sacks
+    if (d.t==="rect" && !d.pl && (d.l||0)<=7 && (d.w||0)<=3 && /^#(5B6E8C|8C4A4A|5E7A55|7A6A4E)$/i.test(d.f||"")) return "carry";   // bedrolls
+    if (d.t==="circ" && /^#7A4E2A$/i.test(d.f||"")) return "push";                         // barrels
+    if (d.t==="rect" && d.pl) return "push";                                                // crates
+    if (d.t==="rect" && /^#6B4A2E$/i.test(d.f||"")) return "push";                          // log seats
+    return "fixed";
+  }
+  function nameOf(d){
+    if (d.t==="lamp") return d.out?"Smashed lantern":"Lantern"; if (d.t==="tent") return "Tent";
+    if (d.t==="circ" && /^#B39B6E$/i.test(d.f||"")) return "Supply sacks"; if (d.t==="circ" && /^#7A4E2A$/i.test(d.f||"")) return "Barrel";
+    if (d.t==="rect" && d.pl) return "Crates"; if (d.t==="rect" && /^#6B4A2E$/i.test(d.f||"")) return "Log seat";
+    if (d.t==="rect" && (d.l||0)<=7) return "Bedroll"; return (typeof DECO_NAME!=="undefined"&&DECO_NAME[d.t])||"Object";
+  }
+  const radiusOf=d=>d.t==="rect"||d.t==="tent"?Math.max(d.l||0,d.w||0)/2:d.t==="lamp"?2:d.t==="circ"||d.t==="stal"||d.t==="fire"?(d.r||2):d.t==="cry"?(d.s||0)*0.6:2;
+  const keyOf=d=>({t:d.t,x:d.x,y:d.y});
+  const findKey=(L,k)=>{ let best=-1,bd=1.5; L.forEach((d,i)=>{ if (d.t!==k.t) return; const dd=Math.hypot(d.x-k.x,d.y-k.y); if (dd<bd){ bd=dd; best=i; } }); return best; };
+  const reach=(t,x,y,r)=>Math.hypot(t.x-x,t.y-y)-r-sizeOf(t)/2 <= 6;
+  window.__objHandling=handling; window.__objName=nameOf;
+  // ---- DM: handling dropdown in Edit map features ----
+  { const tools=document.getElementById("decoTools"); if (tools){ const s=document.createElement("select"); s.id="decoHand"; s.setAttribute("aria-label","Can players move this?");
+      s.innerHTML=`<option value="">Players: automatic</option><option value="carry">Players can pick it up</option><option value="push">Players can push / pull it</option><option value="fixed">Immovable</option>`;
+      tools.appendChild(document.createTextNode(" ")); tools.appendChild(s);
+      s.onchange=()=>decoChange(d=>{ if (s.value) d.h=s.value; else delete d.h; });
+      const _du=decoUI; decoUI=function(){ _du(); const d=ui.decoEdit&&ui.decoSel!=null?decoList()[ui.decoSel]:null; s.hidden=!d||d.t==="emo"; if (d){ s.value=d.h||""; s.options[0].text="Players: automatic ("+({carry:"pick up",push:"push / pull",fixed:"immovable"})[handling(Object.assign({},d,{h:null}))]+")"; } }; } }
+  // ---- applying actions (the lead DM tab, or the DM directly) ----
+  function placeOk(x,y){ try{ return !areasOf(S).length || !!areaAt(x,y); }catch(e){ return true; } }
+  function apply(t,r){
+    const L=decoList(); let ch=false;
+    if (r.a==="pick"){ const i=findKey(L,r); if (i<0) return false; const d=L[i]; if (handling(d)!=="carry"||!reach(t,d.x,d.y,radiusOf(d))) return false;
+      L.splice(i,1); (t.carry||(t.carry=[])).push(d);
+      if (d.t==="lamp" && !d.out && !t.light){ t.light="torch"; t.lightCarry=true; delete t.lightOff; }
+      S.notes.push({id:uid(),text:`${t.name} picks up the ${nameOf(d).toLowerCase()}`,round:S.round,at:Date.now()}); return true; }
+    if (r.a==="drop"){ const c=t.carry||[]; const i=Number.isInteger(r.i)?r.i:c.length-1; const d=c[i]; if(!d) return false; c.splice(i,1); if(!c.length) delete t.carry;
+      const ang=((t.face||0)+90)*Math.PI/180, off=sizeOf(t)/2+radiusOf(d)+1; let x=t.x+Math.cos(ang)*off, y=t.y+Math.sin(ang)*off; if (!placeOk(x,y)){ x=t.x; y=t.y; }
+      d.x=Math.round(x*10)/10; d.y=Math.round(y*10)/10; d.area=decoAreaAt(d.x,d.y); L.push(d);
+      if (d.t==="lamp" && t.lightCarry && !(t.carry||[]).some(c2=>c2.t==="lamp"&&!c2.out)){ delete t.light; delete t.lightCarry; }
+      S.notes.push({id:uid(),text:`${t.name} puts down the ${nameOf(d).toLowerCase()}`,round:S.round,at:Date.now()}); return true; }
+    if (r.a==="push"){ const i=r.tok?-1:findKey(L,r); const o=r.tok?tok(r.tok):L[i]; if(!o) return false;
+      const isTok=!!r.tok, h=isTok?"push":handling(o), rad=isTok?sizeOf(o)/2:radiusOf(o); if (h!=="push"||!reach(t,o.x,o.y,rad)) return false;
+      const dx=o.x-t.x, dy=o.y-t.y, D=Math.hypot(dx,dy)||1, nx=o.x+dx/D*5, ny=o.y+dy/D*5; if (!placeOk(nx,ny)) return false;
+      o.x=Math.round(nx*10)/10; o.y=Math.round(ny*10)/10; if(!isTok) o.area=decoAreaAt(o.x,o.y);
+      S.notes.push({id:uid(),text:`${t.name} pushes the ${isTok?o.name:nameOf(o).toLowerCase()}`,round:S.round,at:Date.now()}); return true; }
+    if (r.a==="pull"){ const o=r.tok?tok(r.tok):L[findKey(L,r)]; if(!o) return false; const isTok=!!r.tok; if ((isTok?"push":handling(o))!=="push"||!reach(t,o.x,o.y,isTok?sizeOf(o)/2:radiusOf(o))) return false;
+      t.tow=isTok?{tok:o.id}:keyOf(o); return true; }
+    if (r.a==="letgo"){ if (!t.tow) return false; delete t.tow; return true; }
+    return false;
+  }
+  window.__objApply=(t,r)=>{ if (apply(t,r)){ commit(); renderAll(); } };
+  // anything being towed follows behind the token that pulls it (moving with it in tow costs double in battle)
+  const last=new Map();
+  const _cm=commit; commit=function(){
+    (S.tokens||[]).forEach(t=>{ const p=last.get(t.id); last.set(t.id,[t.x,t.y]); if (!t.tow||!p) return; const dd=Math.hypot(t.x-p[0],t.y-p[1]); if (dd<0.3) return;
+      const L=decoList(), o=t.tow.tok?tok(t.tow.tok):L[findKey(L,t.tow)]; if(!o){ delete t.tow; return; }
+      const ux=(t.x-p[0])/dd, uy=(t.y-p[1])/dd, back=sizeOf(t)/2+(t.tow.tok?sizeOf(o)/2:radiusOf(o))+0.5;
+      o.x=Math.round((t.x-ux*back)*10)/10; o.y=Math.round((t.y-uy*back)*10)/10; if (!t.tow.tok){ o.area=decoAreaAt(o.x,o.y); t.tow={t:o.t,x:o.x,y:o.y}; }
+      if (S.battle) t.used=Math.round(((t.used||0)+dd)*10)/10; });
+    return _cm.apply(this,arguments); };
+  (S.tokens||[]).forEach(t=>last.set(t.id,[t.x,t.y]));
+  // players learn what they carry
+  const _pe=pubExtra; pubExtra=function(st,t){ const o=_pe(st,t); if ((t.kind==="party"||t.playerMove)){ if (t.carry&&t.carry.length) o.carry=t.carry.map(nameOf); if (t.tow) o.tow=t.tow.tok?((tok(t.tow.tok)||{}).name||"object"):nameOf((decoList()[findKey(decoList(),t.tow)])||{}); } return o; };
+  // requests from players arrive in the emote queue
+  const hook=()=>{ if (!fbRoot || hook.on) return; hook.on=true;
+    fbRoot.child("fxReq").on("value",sn=>{ if (MODE!=="dm"||!amLeader) return; const v=sn.val(); if(!v) return; let ch=false;
+      for (const src in v) for (const k in v[src]){ const r=v[src][k]; if (r.k!=="act") continue; const t=tok(src); if (t && apply(t,r)) ch=true; }
+      if (ch){ commit(); renderAll(); } },()=>{}); };
+  setInterval(hook,1500); hook();
+  function request(t,r){
+    if (MODE==="dm"){ if (apply(t,r)){ commit(); renderAll(); } return; }
+    if (!fbRoot) return;
+    fbRoot.child("fxReq/"+t.id).push(Object.assign({k:"act",at:firebase.database.ServerValue.TIMESTAMP},r)).then(()=>setStatus("Sent to the DM's board")).catch(()=>setStatus("Ask the DM to switch on emotes & objects for you"));
+  }
+  // ---- right-click an object next to your character ----
+  function objMenu(cx,cy,items){
+    const old=document.getElementById("emoMenu"); if (old) old.remove();
+    const m=document.createElement("div"); m.id="emoMenu"; m.style.gridTemplateColumns="repeat(5,34px)";
+    items.forEach(([label,fn])=>{ const b=document.createElement("button"); b.className="wide"; b.textContent=label; b.onclick=()=>{ m.remove(); fn(); }; m.appendChild(b); });
+    document.body.appendChild(m); const r=m.getBoundingClientRect(); m.style.left=Math.max(6,Math.min(innerWidth-r.width-6,cx+6))+"px"; m.style.top=Math.max(6,Math.min(innerHeight-r.height-6,cy+6))+"px";
+    const off=e=>{ if (!m.contains(e.target)){ m.remove(); document.removeEventListener("pointerdown",off,true); } }; setTimeout(()=>document.addEventListener("pointerdown",off,true),0);
+  }
+  document.addEventListener("contextmenu",e=>{
+    if (MODE==="dm" || !svg.contains(e.target)) return;        // the DM just drags things
+    const me=localStorage.getItem("mines-me"), t=me&&tok(me); if (!t) return;
+    const p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U;
+    let tg=null; for (const n of document.elementsFromPoint(e.clientX,e.clientY)){ const k=n.closest&&n.closest(".tok"); if (k){ tg=k; break; } }
+    const ot=tg&&tok(tg.dataset.id);
+    if (ot && ot.kind==="cart" && !ot.rock && ot.id!==t.id){
+      if (!reach(t,ot.x,ot.y,sizeOf(ot)/2)){ e.preventDefault(); e.stopImmediatePropagation(); setStatus("Move next to it first"); return; }
+      e.preventDefault(); e.stopImmediatePropagation();
+      objMenu(e.clientX,e.clientY,[["🫸 Push the "+(ot.name||"object").toLowerCase(),()=>request(t,{a:"push",tok:ot.id})],["🪢 Pull it behind you",()=>request(t,{a:"pull",tok:ot.id})]]); return; }
+    if (ot) return;
+    const D=decoOf(S)||[]; let hit=null; for (let i=D.length-1;i>=0;i--){ const d=D[i]; if (d.t!=="emo" && decoHit(d,x,y)){ hit=d; break; } }
+    if (!hit) return; const h=handling(hit); if (h==="fixed") return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!reach(t,hit.x,hit.y,radiusOf(hit))){ setStatus("Move next to the "+nameOf(hit).toLowerCase()+" first"); return; }
+    const k=keyOf(hit), nm=nameOf(hit).toLowerCase();
+    if (h==="carry") objMenu(e.clientX,e.clientY,[["✋ Pick up the "+nm,()=>request(t,Object.assign({a:"pick"},k))]]);
+    else objMenu(e.clientX,e.clientY,[["🫸 Push the "+nm,()=>request(t,Object.assign({a:"push"},k))],["🪢 Pull it behind you",()=>request(t,Object.assign({a:"pull"},k))]]);
+  },true);
+  // ---- player card: what you're carrying ----
+  const _rp=renderPSel; renderPSel=function(){ _rp(); const t=ui.pSel&&tok(ui.pSel), body=document.getElementById("pSelBody"); if(!t||!t.pick||!body||t.kind!=="party") return;
+    const c=t.carry||[]; if (!c.length && !t.tow) return;
+    const box=document.createElement("div"); box.style.cssText="margin-top:8px;padding-top:6px;border-top:1px solid var(--line);font-size:14px";
+    box.innerHTML=(c.length?`<div class="muted" style="margin-bottom:4px">Carrying</div>`+c.map((n,i)=>`<div class="row" style="gap:6px;justify-content:space-between"><span>${esc(n)}</span><button class="small" data-drop="${i}">Drop</button></div>`).join(""):"")
+      +(t.tow?`<div class="row" style="gap:6px;justify-content:space-between;margin-top:4px"><span>Pulling: ${esc(t.tow)}</span><button class="small" id="pxLetGo">Let go</button></div>`:"");
+    body.appendChild(box);
+    box.querySelectorAll("[data-drop]").forEach(b=>b.onclick=()=>request(t,{a:"drop",i:+b.dataset.drop}));
+    const lg=document.getElementById("pxLetGo"); if (lg) lg.onclick=()=>request(t,{a:"letgo"});
+  };
+  // ---- DM: see and drop what a token carries ----
+  const _rs=renderSel; renderSel=function(){ _rs(); if (MODE!=="dm"||ui.selCrystal||!ui.sel||ui.sel.length!==1) return; const t=tok(ui.sel[0]), box=document.getElementById("selBody"); if(!t||!box) return;
+    const c=t.carry||[]; if (!c.length && !t.tow) return;
+    const row=document.createElement("div"); row.style.cssText="margin-top:6px;font-size:14px";
+    row.innerHTML=(c.length?`<b>Carrying</b> `+c.map((d,i)=>`<span class="chip">${esc(nameOf(d))} <button class="small" data-dmdrop="${i}">Drop</button></span>`).join(" "):"")+(t.tow?` <span class="chip">Pulling ${esc(t.tow.tok?((tok(t.tow.tok)||{}).name||"object"):nameOf(decoList()[findKey(decoList(),t.tow)]||{}))} <button class="small" id="dmLetGo">Let go</button></span>`:"");
+    box.appendChild(row);
+    row.querySelectorAll("[data-dmdrop]").forEach(b=>b.onclick=()=>{ if (apply(t,{a:"drop",i:+b.dataset.dmdrop})){ commit(); renderAll(); } });
+    const lg=document.getElementById("dmLetGo"); if (lg) lg.onclick=()=>{ if (apply(t,{a:"letgo"})){ commit(); renderAll(); } };
+  };
+})();
+
+// ---- tidier layout: Selected first, notes under the map, collapsible cards and toolbar groups ----
+(function(){
+  const LS="mines-ui-v1"; let st={}; try{ st=JSON.parse(localStorage.getItem(LS)||"{}"); }catch(e){}
+  const save=()=>{ try{ localStorage.setItem(LS,JSON.stringify(st)); }catch(e){} };
+  const css=document.createElement("style");
+  css.textContent=`.card.collapsed>*:not(.cardHead){display:none!important}
+.cardHead{cursor:pointer;user-select:none}
+.cardHead .chev{margin-left:auto;border:none;background:none;font-size:15px;line-height:1;padding:2px 4px;color:var(--muted);cursor:pointer;transition:transform .15s}
+.card.collapsed .cardHead .chev{transform:rotate(-90deg)}
+h2.cardHead{display:flex;align-items:center;gap:6px}
+.under{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:14px;align-items:start}
+.tgrp{display:contents}.tgrp.shut{display:none}
+.tgbtn{font-weight:600}.tgbtn.open{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}`;
+  document.head.appendChild(css);
+  const side=document.querySelector(".side"), col=document.querySelector(".layout > div:first-child");
+  const cardOf=txt=>[...document.querySelectorAll("section.card, .notes .card")].find(c=>{ const h=c.querySelector("h2"); return h&&h.textContent.trim().replace(/\s+/g," ").startsWith(txt); });
+  // Selected (and the player's own card) always on top, Find a token right below it
+  const sel=cardOf("Selected"), find=document.getElementById("findCard"), pcard=document.getElementById("pSelCard");
+  if (side && sel){ side.insertBefore(sel, side.firstChild); if (pcard) side.insertBefore(pcard, side.firstChild); const ini=cardOf("Initiative"); if (ini) sel.after(ini); if (find) (ini||sel).after(find); }
+  // Areas, Session notes and Scratchpad live under the map
+  if (col){ const under=document.createElement("div"); under.className="under dm-only"; col.appendChild(under);
+    ["Areas","Session notes","Scratchpad"].forEach(n=>{ const c=cardOf(n); if (c) under.appendChild(c); });
+    const nt=document.querySelector("section.notes"); if (nt && !nt.querySelector(".card")) nt.hidden=true; }
+  // collapsible cards (remembered per browser)
+  function makeCollapsible(card){
+    if (!card || card.id==="loginCard" || card.dataset.coll) return; const h=card.querySelector("h2"); if(!h) return;
+    let head=h; while (head.parentElement && head.parentElement!==card) head=head.parentElement; if (head.parentElement!==card) return;
+    card.dataset.coll="1"; head.classList.add("cardHead");
+    const key=h.textContent.trim().replace(/\s+/g," ").slice(0,30), chev=document.createElement("button"); chev.className="chev"; chev.type="button"; chev.textContent="▾"; chev.setAttribute("aria-label","Show or hide "+key);
+    if (head===h) h.appendChild(chev); else head.appendChild(chev);
+    if (st[key]) card.classList.add("collapsed");
+    head.addEventListener("click",e=>{ if (e.target!==chev && e.target.closest("button,select,input,label,a") ) return; card.classList.toggle("collapsed"); st[key]=card.classList.contains("collapsed"); save(); });
+  }
+  const scan=()=>document.querySelectorAll(".side > section.card, .under > .card, .under > section.card").forEach(makeCollapsible);
+  scan(); setTimeout(scan,500); setTimeout(scan,2500);
+  // toolbar: fold the editing tools and the board / file buttons into groups
+  const bar=document.querySelector(".toolbar");
+  function group(name,label,firstId,lastId,extraIds){
+    const a=document.getElementById(firstId), b=document.getElementById(lastId); if(!a||!b||a.parentElement!==b.parentElement) return;
+    const wrap=document.createElement("span"); wrap.className="tgrp"; const btn=document.createElement("button"); btn.className="tgbtn dm-only"; btn.type="button";
+    a.before(btn); btn.after(wrap); let n=wrap.nextSibling;
+    while (n){ const nx=n.nextSibling; wrap.appendChild(n); if (n===b) break; n=nx; }
+    (extraIds||[]).forEach(id=>{ const e=document.getElementById(id); if (e) wrap.appendChild(e); });
+    const set=open=>{ wrap.classList.toggle("shut",!open); btn.classList.toggle("open",open); btn.textContent=label+(open?" ▴":" ▾"); st["tb:"+name]=open; save(); };
+    btn.onclick=()=>set(wrap.classList.contains("shut")); set(!!st["tb:"+name]);
+    return {wrap,set};
+  }
+  if (MODE==="dm"||document.getElementById("paintR")){
+    const ed=group("edit","🖌 Map editing","paintR","clearPaint");
+    if (ed){ ["drawSel","drawColor","drawW","drawClear","envSel","envClear","decoEditBtn","decoAdd","decoTools"].forEach(id=>{ const e=document.getElementById(id); if (e) ed.wrap.appendChild(e); });
+      // open the group by itself when one of its tools is switched on
+      setInterval(()=>{ const on=(ui.paint||ui.draw||ui.env||ui.decoEdit); if (on && ed.wrap.classList.contains("shut")) ed.set(true); },500); }
+    group("board","💾 Board","setupBtn","signOutBtn");
+  }
+  // tidy leftover separators
+  if (bar) bar.querySelectorAll(".sep").forEach(s=>{ const p=s.previousElementSibling, n=s.nextElementSibling; if (!p||!n||(p.classList&&p.classList.contains("sep"))) s.remove(); });
 })();
 
 })();
