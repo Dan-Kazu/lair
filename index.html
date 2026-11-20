@@ -2679,7 +2679,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     btn.onclick=()=>set(wrap.classList.contains("shut")); set(!!st["tb:"+name]);
     return {wrap,set};
   }
-  if (MODE==="dm"||document.getElementById("paintR")){
+  if (MODE==="dm"||MODE==="login"||document.getElementById("paintR")||document.getElementById("drawSel")){
     const ed=document.getElementById("paintR")?group("edit","🖌 Map editing","paintR","clearPaint"):group("edit","🖌 Drawing & effects","drawSel","envClear");
     if (ed){ ["drawSel","drawColor","drawW","drawClear","envSel","envClear","decoEditBtn","decoAdd","decoTools"].forEach(id=>{ const e=document.getElementById(id); if (e) ed.wrap.appendChild(e); });
       // open the group by itself when one of its tools is switched on
