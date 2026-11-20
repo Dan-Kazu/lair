@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20h";
+const APP_VER = "2026-11-20i";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3433,7 +3433,8 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
 (function(){
   const J=v=>{ const s=JSON.stringify(v); return s===undefined?null:s; };
   // vision polygons are long lists of points: send them as small integer steps instead
-  const encVis=v=>{ if (!Array.isArray(v)) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
+  const encVis=v=>{ try{ return encVis0(v); }catch(e){ return null; } };
+  const encVis0=v=>{ if (!Array.isArray(v) || !v.every(P=>Array.isArray(P) && P.every(p=>Array.isArray(p) && p.length===2 && isFinite(p[0]) && isFinite(p[1])))) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
     return "~"+f+"|"+v.map(P=>{ let px=0,py=0; return P.map(p=>{ const x=Math.round(p[0]*f), y=Math.round(p[1]*f), s=(x-px)+","+(y-py); px=x; py=y; return s; }).join(";"); }).join("|"); };
   const decVis=s=>{ const a=s.slice(1).split("|"), f=+a[0]; return a.slice(1).map(P=>{ let x=0,y=0; return P?P.split(";").map(q=>{ const [dx,dy]=q.split(","); x+=+dx; y+=+dy; return [x/f,y/f]; }):[]; }); };
   function flat(o,split){            // split: {tokens:true, setup:true}
@@ -3465,6 +3466,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
   window.__syncFlat=flat; window.__syncRebuild=rebuild; window.__syncDiff=diff;
 
   let sentDM={}, sentPub={}, legacyCleared=false;
+  const HAS_SCALE=typeof scaleState==="function", SC=(r,o)=>HAS_SCALE?scaleState(r,o):r;
   pushShared=async function(){
     if (!fbRoot || MODE!=="dm" || !canWrite) return;
     if (writing){ writeAgain=true; return; }
@@ -3490,7 +3492,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     if (Object.keys(moveQ).length && !ui.dragging){ clearTimeout(moveTimer); flushMoves(); }
     const fresh=Object.keys(liveMap).filter(id=>nowServer()-(liveMap[id].at||0)<5000); if (!fresh.length) return;
     const T=Object.assign({},S,{tokens:S.tokens.map(t=>{ const L=liveMap[t.id]; return (L&&fresh.includes(t.id)) ? Object.assign({},t,{x:L.x,y:L.y}) : t; })});
-    updateExplored(computeVision(T)); T.explored=S.explored; T.seenAreas=S.seenAreas;
+    if (typeof updateExplored==="function" && typeof computeVision==="function"){ updateExplored(computeVision(T)); T.explored=S.explored; T.seenAreas=S.seenAreas; }
     const fP=flat(publicView(T),{}), upd=diff("public",fP,sentPub); if (!Object.keys(upd).length) return;
     upd["public/at"]=Date.now();
     fbRoot.update(upd).then(()=>{ sentPub=fP; }).catch(()=>{});
@@ -3517,13 +3519,13 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     try {
       const snap=await fbRoot.child("dm").once("value"); const v=snap.val();
       const raw=rebuild(v,false);
-      if (raw){ const old=raw.mapScale!==2; S=scaleState(raw,old); lastJSON=JSON.stringify(S); saveLocal(); if (old) setTimeout(()=>setStatus("Map converted to 5 ft squares. The old board is saved in this browser."),1500); }
+      if (raw){ const old=HAS_SCALE && raw.mapScale!==2; S=SC(raw,old); lastJSON=JSON.stringify(S); saveLocal(); if (old) setTimeout(()=>setStatus("Map converted to 5 ft squares. The old board is saved in this browser."),1500); }
       if (v && v.p){ sentDM=rawOf(v); legacyCleared=!v.state; }
       try { const ps=await fbRoot.child("public").once("value"); const pv=ps.val(); if (pv && pv.p) sentPub=rawOf(pv); } catch(e){}
       pushShared(); listenLive();
       fbRoot.child("dm").on("value", sn=>{
         const x=sn.val(); if(!x||(!x.p&&!x.state)||x.writer===TAB||x.at===ui.remoteAt) return; ui.remoteAt=x.at;
-        let next; try{ next=scaleState(rebuild(x,false),false); }catch(e){ return; }
+        let next; try{ next=SC(rebuild(x,false),false); }catch(e){ return; }
         if (x.p) sentDM=rawOf(x);
         if (ui.dragging){ pendingRemote=next; return; }
         applyRemote(next);
@@ -3534,6 +3536,56 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     }
     pruneSelection(); renderAll(); updateUndo();
   };
+})();
+// ---- battle turns: dead creatures sit out, and a group's turn steps through its living members ----
+(function(){
+  // the dead never get a turn, a movement ring or a movement budget
+  const _ot=onTurn; onTurn=function(st,t){ if (st && st.battle && t && t.dead) return false; return _ot.apply(this,arguments); };
+  const living=g=>(g?g.members:[]).map(id=>tok(id)).filter(t=>t&&!t.dead);
+  const curEntry=()=>S.battle?S.init[S.cur]:null;
+  const curGroup=()=>{ const e=curEntry(); return e&&e.kind==="group"?grp(e.ref):null; };
+  function focus(t){
+    if (!t || MODE!=="dm") return;
+    ui.sel=[t.id]; ui.selCrystal=null;
+    try { startMeasFrom(t.id,"path"); } catch(e){}
+    renderAll();
+  }
+  function step(dir){
+    const g=curGroup(); if (!g) return; const L=living(g); if (!L.length) return;
+    let i=L.findIndex(t=>t.id===g.step); i=i<0?0:(i+dir+L.length)%L.length;
+    g.step=L[i].id; commit(); focus(L[i]); renderInit();
+  }
+  window.__groupStep=step;
+  // a new turn starts on the first living creature of the group (or the solo creature)
+  const _st=startTurn; startTurn=function(){
+    const r=_st.apply(this,arguments); const e=S.init[S.cur];
+    if (S.battle && e){
+      if (e.kind==="group"){ const g=grp(e.ref), L=living(g); if (g){ g.step=L.length?L[0].id:null; if (L.length) setTimeout(()=>focus(tok(g.step)),0); } }
+      else if (e.ref){ const t=tok(e.ref); if (t && !t.dead && t.kind!=="party") setTimeout(()=>focus(t),0); }
+    }
+    return r; };
+  // the current group's slot shows who is moving, with buttons to go to the next creature
+  const _ri=renderInit; renderInit=function(){
+    _ri.apply(this,arguments);
+    const g=curGroup(); if (!g || MODE!=="dm") return;
+    const li=initList.children[S.cur]; if (!li) return;
+    const L=living(g); let t=tok(g.step); if (!t || t.dead){ t=L[0]||null; g.step=t?t.id:null; }
+    const bar=document.createElement("div"); bar.className="ifbar"; bar.style.marginTop="6px";
+    if (!t){ bar.innerHTML=`<span class="muted" style="font-size:13px">Everyone in this group is down.</span>`; li.appendChild(bar); return; }
+    const n=L.indexOf(t)+1;
+    bar.innerHTML=`<span style="font-size:13px">Moving: <b style="cursor:pointer" data-a="who">${esc(t.name)}</b> <span class="muted">(${n} of ${L.length}${S.battle?` · ${moveLeft(t)} ft left`:""})</span></span>
+      <button class="small" data-a="prev" aria-label="Previous creature in the group">◂</button><button class="small primary" data-a="next">Next creature ▸</button>`;
+    li.appendChild(bar);
+    bar.querySelector('[data-a="who"]').onclick=ev=>{ ev.stopPropagation(); focus(t); };
+    bar.querySelector('[data-a="prev"]').onclick=ev=>{ ev.stopPropagation(); step(-1); };
+    bar.querySelector('[data-a="next"]').onclick=ev=>{ ev.stopPropagation(); step(1); };
+  };
+  // corpses are drawn underneath the living, so clicking a creature never grabs the body beside or under it
+  const _rb=renderBoard; renderBoard=function(){
+    const r=_rb.apply(this,arguments);
+    const nodes=[...svg.querySelectorAll(":scope > .tok")]; if (nodes.length){
+      const first=nodes[0]; nodes.forEach(n=>{ const t=tok(n.dataset.id); if (t && t.dead && n!==first) svg.insertBefore(n,first); }); }
+    return r; };
 })();
 
 })();
