@@ -677,7 +677,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20a";
+const APP_VER = "2026-11-20b";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -2871,6 +2871,156 @@ function drawFire(g,X,Y,d){
   if (!d.out){ el("circle",{cx:X,cy:Y,r:R*0.62,fill:"#F07C2A","fill-opacity":0.9},g); el("circle",{cx:X,cy:Y,r:R*0.38,fill:"#FFB347"},g); el("circle",{cx:X,cy:Y,r:R*0.16,fill:"#FFF1C2"},g); }
   else el("circle",{cx:X,cy:Y,r:R*0.5,fill:"#4A4038","fill-opacity":0.8},g);
 }
+
+// ---- emotes and markers: right-click your token for an emote, right-click the ground for a marker ----
+(function(){
+  const SYM=["!","👍","👎","🔥","↑","↗","→","↘","↓","↙","←","↖","😡","😊","😢","😱","😂","❤️","✖","✔"];
+  const KIND=i=>i===0?"alert":i<=3?"say":i<=11?"arrow":i<=17?"feel":"mark";
+  const COL={alert:{f:"#F7D774",s:"#8A6A0E",t:"#5A4306"},say:{f:"#F5C4B3",s:"#993C1D",t:"#712B13"},arrow:{f:"#B5D4F4",s:"#185FA5",t:"#0C447C"},feel:{f:"#CECBF6",s:"#534AB7",t:"#3C3489"},mark:{f:"#E7E3DA",s:"#4A453C",t:"#2A2620"}};
+  const LIFE=5000, COOL=900;
+  let fxMap={}, fxOk={}, lastSent=0, ticker=null, menu=null;
+  const me=()=>{ try{ return localStorage.getItem("mines-me")||""; }catch(e){ return ""; } };
+  const setMe=id=>{ try{ localStorage.setItem("mines-me",id); }catch(e){} };
+  const isDM=()=>MODE==="dm";
+  const canEmote=id=>isDM()||!!fxOk[id];
+  const now=()=>(typeof nowServer==="function"?nowServer():Date.now());
+  const st=document.createElement("style");
+  st.textContent=`#emoMenu{position:fixed;z-index:60;background:var(--panel,#fff);border:1px solid var(--line,#ccc);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.28);display:grid;grid-template-columns:repeat(5,34px);gap:5px;font-family:inherit}
+#emoMenu button{width:34px;height:34px;border-radius:50%;border:2px solid;padding:0;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#emoMenu .wide{grid-column:span 5;width:auto;border-radius:8px;height:30px;font-size:13px;border:1px solid var(--line,#ccc);background:var(--panel2,#f3f1ec);color:var(--ink,#222)}
+#emoMenu .wide.on{background:var(--accent,#4B3F8E);color:var(--accent-ink,#fff);border-color:var(--accent,#4B3F8E)}
+#emoMenu .hd{grid-column:span 5;font-size:12px;opacity:.75;padding:0 2px}
+#emoPanel{position:absolute;z-index:55;background:var(--panel,#fff);border:1px solid var(--line,#ccc);border-radius:10px;padding:8px 10px;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:14px;min-width:190px}
+#emoPanel label{display:flex;gap:6px;align-items:center;padding:2px 0}`;
+  document.head.appendChild(st);
+  // ---- drawing (token-style discs) ----
+  function disc(g,x,y,r,i,op){
+    const c=COL[KIND(i)], G=el("g",{transform:`translate(${x},${y})`,opacity:op,"pointer-events":"none"},g);
+    el("circle",{r:r,fill:c.f,stroke:c.s,"stroke-width":r*0.13},G);
+    const tx=el("text",{y:r*0.06,"text-anchor":"middle","dominant-baseline":"central","font-family":FONT,"font-size":r*(KIND(i)==="arrow"||i>=18||i===0?1.25:1.05),"font-weight":800,fill:c.t},G); tx.textContent=SYM[i];
+    return G;
+  }
+  function drawFx(){
+    const old=svg.querySelector("#fxLayer"); if (old) old.remove();
+    const g=el("g",{id:"fxLayer"},svg), t0=now(); let live=0;
+    // pinned markers (map features)
+    (decoOf(S)||[]).forEach(d=>{ if (d.t!=="emo") return; const G=disc(g,fx(d.x),fy(d.y),2.6*U,d.s,1);
+      if (d.by){ const R=2.6*U, lb=el("text",{y:R*1.75,"text-anchor":"middle","font-family":FONT,"font-size":R*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":R*0.14,"paint-order":"stroke"},G); lb.textContent=d.by; } });
+    for (const id in fxMap){ const f=fxMap[id], age=t0-(f.at||0); if (age<0||age>LIFE) continue; live++;
+      const op=age>LIFE-1200?Math.max(0,(LIFE-age)/1200):1, rise=Math.min(1,age/400);
+      let x=f.x, y=f.y, r=2.4*U;
+      if (f.on){ const t=(S.tokens||[]).find(t=>t.id===f.tok); if (!t || (!isDM() && (t.kind==='cart'||t.kind==='felt'))) continue; const tr=sizeOf(t)/2; x=t.x; y=t.y-tr-3-rise*2; r=Math.max(2.2,Math.min(4,tr*0.8))*U; }
+      const G=disc(g,fx(x),fy(y),r*(0.6+0.4*rise),f.s,op);
+      if (!f.on && f.name){ const lb=el("text",{y:r*1.75,"text-anchor":"middle","font-family":FONT,"font-size":r*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":r*0.14,"paint-order":"stroke"},G); lb.textContent=f.name; } }
+    if (live && !ticker) ticker=setInterval(()=>{ drawFx(); },150);
+    if (!live && ticker){ clearInterval(ticker); ticker=null; }
+  }
+  const _rb=renderBoard; renderBoard=function(){ _rb.apply(this,arguments); try{ drawFx(); }catch(e){} };
+  // ---- sending ----
+  function tokName(id){ const t=id&&tok(id); return id==="dm"?"DM":(t?(t.name||t.label):""); }
+  function send(src,s,x,y,on,pin){
+    if (!isDM() && Date.now()-lastSent<COOL) return; lastSent=Date.now();
+    const rec={s,x:Math.round(x*10)/10,y:Math.round(y*10)/10,on:on?1:0,at:now(),tok:src,name:tokName(src)};
+    if (pin){ addPin(src,s,rec.x,rec.y); }
+    if (!fbRoot){ fxMap[src]=rec; drawFx(); return; }
+    const up={s:rec.s,x:rec.x,y:rec.y,on:rec.on,at:firebase.database.ServerValue.TIMESTAMP};
+    fbRoot.child("fx/"+src).set(up).catch(e=>setStatus(/permission/i.test(String(e&&e.message||e))?"Emotes are switched off for you":"Couldn't send that emote"));
+    fxMap[src]=rec; drawFx();
+  }
+  function addPin(src,s,x,y){
+    if (isDM()){ decoList().push({t:"emo",s,x,y,by:tokName(src),area:decoAreaAt(x,y),id:"e"+uid()}); commit(); renderBoard(); return; }
+    if (!fbRoot) return;
+    fbRoot.child("fxReq/"+src).push({k:"pin",s,x,y,at:firebase.database.ServerValue.TIMESTAMP}).then(()=>setStatus("Marker pinned")).catch(()=>setStatus("Couldn't pin that marker"));
+  }
+  function removePin(src,d){
+    if (isDM()){ const L=decoList(), i=L.indexOf(d); if (i>=0){ L.splice(i,1); commit(); renderBoard(); } return; }
+    if (!fbRoot) return;
+    fbRoot.child("fxReq/"+src).push({k:"rm",id:d.id||"",x:d.x,y:d.y,s:d.s,at:firebase.database.ServerValue.TIMESTAMP}).then(()=>setStatus("Marker removed")).catch(()=>{});
+  }
+  // the lead DM tab turns players' pin / remove requests into map features
+  function watchReq(){
+    if (!fbRoot || watchReq.on) return; watchReq.on=true;
+    fbRoot.child("fxReq").on("value",sn=>{ if (!isDM() || !amLeader) return; const v=sn.val(); if (!v) return; let changed=false; const L=decoList(), clear={};
+      for (const src in v) for (const k in v[src]){ const r=v[src][k]; clear[src+"/"+k]=null;
+        if (r.k==="pin" && SYM[r.s]!=null){ L.push({t:"emo",s:r.s,x:r.x,y:r.y,by:tokName(src),area:decoAreaAt(r.x,r.y),id:"e"+uid()}); changed=true; }
+        else if (r.k==="rm"){ const i=L.findIndex(d=>d.t==="emo"&&((r.id&&d.id===r.id)||(!r.id&&Math.hypot(d.x-r.x,d.y-r.y)<0.5&&d.s===r.s))); if (i>=0){ L.splice(i,1); changed=true; } } }
+      if (changed){ commit(); renderBoard(); }
+      fbRoot.child("fxReq").update(clear).catch(()=>{}); },()=>{});
+  }
+  function watch(){
+    if (!fbRoot || watch.on) return; watch.on=true;
+    fbRoot.child("fx").on("value",sn=>{ const v=sn.val()||{}; const m={}; for (const k in v){ m[k]=Object.assign({tok:k,name:tokName(k)},v[k]); } fxMap=m; drawFx(); },()=>{});
+    fbRoot.child("fxOk").on("value",sn=>{ fxOk=sn.val()||{}; },()=>{});
+    watchReq();
+  }
+  setInterval(watch,1500); watch();
+  // ---- the menu ----
+  function closeMenu(){ if (menu){ menu.remove(); menu=null; } }
+  document.addEventListener("pointerdown",e=>{ if (menu && !menu.contains(e.target)) closeMenu(); },true);
+  document.addEventListener("keydown",e=>{ if (e.key==="Escape") closeMenu(); });
+  function openMenu(cx,cy,o){
+    closeMenu(); let pin=false;
+    menu=document.createElement("div"); menu.id="emoMenu";
+    const head=document.createElement("div"); head.className="hd"; head.textContent=o.on?("Emote: "+tokName(o.src)):("Marker"+(o.src?" from "+tokName(o.src):"")); menu.appendChild(head);
+    SYM.forEach((s,i)=>{ const c=COL[KIND(i)], b=document.createElement("button"); b.textContent=s; b.title=s; b.style.background=c.f; b.style.borderColor=c.s; b.style.color=c.t;
+      b.onclick=()=>{ closeMenu(); send(o.src,i,o.x,o.y,o.on,pin&&!o.on); }; menu.appendChild(b); });
+    if (!o.on){ const p=document.createElement("button"); p.className="wide"; p.textContent="📌 Keep it on the map (pin)"; p.onclick=()=>{ pin=!pin; p.classList.toggle("on",pin); p.textContent=pin?"📌 Will pin: pick a symbol":"📌 Keep it on the map (pin)"; }; menu.appendChild(p); }
+    if (o.path){ const p=document.createElement("button"); p.className="wide"; p.textContent="📏 Plan a path from here"; p.onclick=()=>{ closeMenu(); o.path(); }; menu.appendChild(p); }
+    document.body.appendChild(menu);
+    const r=menu.getBoundingClientRect(); menu.style.left=Math.max(6,Math.min(innerWidth-r.width-6,cx+6))+"px"; menu.style.top=Math.max(6,Math.min(innerHeight-r.height-6,cy+6))+"px";
+  }
+  function openRemove(cx,cy,d,src){
+    closeMenu(); menu=document.createElement("div"); menu.id="emoMenu";
+    const head=document.createElement("div"); head.className="hd"; head.textContent="Marker"+(d.by?" by "+d.by:""); menu.appendChild(head);
+    const b=document.createElement("button"); b.className="wide"; b.textContent="✖ Remove this marker"; b.onclick=()=>{ closeMenu(); removePin(src,d); }; menu.appendChild(b);
+    document.body.appendChild(menu); menu.style.left=(cx+6)+"px"; menu.style.top=(cy+6)+"px";
+  }
+  svg.addEventListener("contextmenu",e=>{
+    if (isDM() && (ui.draw||ui.env||ui.decoEdit||ui.paint)) return;
+    if (ui.measure==="path" && ui.meas && !ui.meas.done) return;   // finishing a path
+    let tg=e.target.closest&&e.target.closest(".tok");
+    if (!tg) for (const n of document.elementsFromPoint(e.clientX,e.clientY)){ const k=n.closest&&n.closest(".tok"); if (k){ tg=k; break; } }
+    const t=tg&&tok(tg.dataset.id), p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U;
+    // a pinned marker under the cursor
+    const pinD=(decoOf(S)||[]).find(d=>d.t==="emo"&&Math.hypot(d.x-x,d.y-y)<=3);
+    if (isDM()){
+      if (t && t.kind!=="party" && S.battle) return;            // monsters in battle: movement path as before
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (pinD && !t){ openRemove(e.clientX,e.clientY,pinD,"dm"); return; }
+      if (t) openMenu(e.clientX,e.clientY,{src:t.id,x:t.x,y:t.y,on:true,path:()=>{ try{ startMeasFrom(t.id,"path"); renderSel(); }catch(err){} }});
+      else openMenu(e.clientX,e.clientY,{src:"dm",x,y,on:false});
+      return;
+    }
+    // players
+    if (t && canEmote(t.id) && t.kind==="party"){
+      e.preventDefault(); e.stopImmediatePropagation(); setMe(t.id);
+      openMenu(e.clientX,e.clientY,{src:t.id,x:t.x,y:t.y,on:true,path:t.pick||t.movable?()=>{ try{ startMeasFrom(t.id,"path"); renderPSel(); }catch(err){} }:null});
+      return;
+    }
+    if (t) return;   // someone else's token: leave the old behaviour
+    const src=me();
+    if (!src || !canEmote(src)){ if (Object.keys(fxOk).some(k=>fxOk[k])){ e.preventDefault(); setStatus("Right-click your own character first to choose who you are"); } return; }
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (pinD){ openRemove(e.clientX,e.clientY,pinD,src); return; }
+    openMenu(e.clientX,e.clientY,{src,x,y,on:false});
+  },true);
+  // ---- DM: who may use emotes ----
+  if (document.getElementById("battleBtn")){
+    const b=document.createElement("button"); b.id="emoBtn"; b.className="dm-only"; b.textContent="Emotes…";
+    document.getElementById("battleBtn").after(b);
+    b.onclick=ev=>{ ev.stopPropagation(); const old=document.getElementById("emoPanel"); if (old){ old.remove(); return; }
+      const P=document.createElement("div"); P.id="emoPanel"; const party=(S.tokens||[]).filter(t=>t.kind==="party");
+      P.innerHTML=`<b>Who can use emotes &amp; markers</b>${party.map(t=>`<label><input type="checkbox" data-id="${t.id}" ${fxOk[t.id]?"checked":""}> ${String(t.name||t.label).replace(/</g,"&lt;")}</label>`).join("")}
+        <div style="display:flex;gap:6px;margin-top:6px"><button class="small" data-all="1">All on</button><button class="small" data-all="0">All off</button><button class="small" data-clear="1" title="Remove every pinned marker">Clear pins</button></div>`;
+      const set=(id,on)=>{ fxOk[id]=on||undefined; if (fbRoot) fbRoot.child("fxOk/"+id).set(on?true:null).catch(()=>setStatus("Couldn't save: the database rules need the emote update")); };
+      P.querySelectorAll("input[data-id]").forEach(c=>c.onchange=()=>set(c.dataset.id,c.checked));
+      P.querySelectorAll("[data-all]").forEach(btn=>btn.onclick=()=>{ const on=btn.dataset.all==="1"; party.forEach(t=>set(t.id,on)); P.querySelectorAll("input[data-id]").forEach(c=>c.checked=on); });
+      P.querySelector("[data-clear]").onclick=()=>{ const L=decoList(); for (let i=L.length-1;i>=0;i--) if (L[i].t==="emo") L.splice(i,1); commit(); renderBoard(); setStatus("Pinned markers cleared"); };
+      document.body.appendChild(P); const r=b.getBoundingClientRect(); P.style.left=(r.left+scrollX)+"px"; P.style.top=(r.bottom+scrollY+4)+"px";
+      const off=e2=>{ if (!P.contains(e2.target) && e2.target!==b){ P.remove(); document.removeEventListener("pointerdown",off,true); } }; document.addEventListener("pointerdown",off,true); };
+  }
+  try{ renderBoard(); }catch(e){}
+})();
 
 })();
 </script>
