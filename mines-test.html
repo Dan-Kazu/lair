@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20f";
+const APP_VER = "2026-11-20h";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1803,7 +1803,7 @@ document.getElementById("backupBtn").onclick=()=>{ const a=document.createElemen
   a.download="arnicite-mines-TEST-backup-"+new Date().toISOString().slice(0,10)+".json"; document.body.appendChild(a); a.click(); a.remove(); setStatus("Board backup downloaded."); };
 document.getElementById("copyLiveBtn").onclick=async()=>{
   try { setStatus("Copying the real board...");
-    const snap=await firebase.database().ref("boards/arnicite-mines/dm/state").once("value"); let v=snap.val(); if (typeof v==="string") v=JSON.parse(v);
+    const snap=await firebase.database().ref("boards/arnicite-mines/dm").once("value"); let v=window.__syncRebuildDM(snap.val());
     if (!v||!v.setup){ setStatus("Couldn't read the real board. Make sure you're signed in as DM."); return; }
     const f=new File([JSON.stringify(v)],"real-board.json",{type:"application/json"}), dt=new DataTransfer(); dt.items.add(f);
     const inp=document.getElementById("setupFile"); inp.files=dt.files; inp.dispatchEvent(new Event("change"));
@@ -2899,11 +2899,13 @@ function emoIcon(i){
     case 18: return `<path d="M22 34 L34 22 L50 38 L66 22 L78 34 L62 50 L78 66 L66 78 L50 62 L34 78 L22 66 L38 50 Z" fill="#FF4F4F" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/>`;
     case 19: return `<path d="M14 52 L26 40 L42 56 L74 22 L86 34 L42 80 Z" fill="#5CD65C" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/>`;
   }
+  if (i===20) return (
+`<rect x="20" y="52" width="60" height="38" rx="13" fill="#FFC857" stroke="${O}" stroke-width="${sw}"/><rect x="21" y="44" width="20" height="22" rx="9" fill="#FFC857" stroke="${O}" stroke-width="${sw}"/><rect x="59" y="46" width="20" height="20" rx="9" fill="#FFC857" stroke="${O}" stroke-width="${sw}"/><rect x="41" y="8" width="18" height="60" rx="9" fill="#FFC857" stroke="${O}" stroke-width="${sw}"/><path d="M24 72 Q38 66 52 74" fill="none" stroke="${O}" stroke-width="5" stroke-linecap="round"/><path d="M46 16 L46 36" stroke="#fff" stroke-opacity=".55" stroke-width="5" stroke-linecap="round"/>`);
   return "";
 }
 
-  const SYM=["!","👍","👎","🔥","↑","↗","→","↘","↓","↙","←","↖","😡","😊","😢","😱","😂","❤️","✖","✔"];
-  const NAMES=["Alert","Thumbs up","Thumbs down","Fire","Up","Up-right","Right","Down-right","Down","Down-left","Left","Up-left","Angry","Happy","Sad","Scared","Laughing","Heart","No","Yes"];
+  const SYM=["!","👍","👎","🔥","↑","↗","→","↘","↓","↙","←","↖","😡","😊","😢","😱","😂","❤️","✖","✔","🖕"];
+  const NAMES=["Alert","Thumbs up","Thumbs down","Fire","Up","Up-right","Right","Down-right","Down","Down-left","Left","Up-left","Angry","Happy","Sad","Scared","Laughing","Heart","No","Yes","Middle finger (DM only)"];
   const KIND=i=>i===0?"alert":i<=3?"say":i<=11?"arrow":i<=17?"feel":"mark";
   const COL={alert:{f:"#F7D774",s:"#8A6A0E",t:"#5A4306"},say:{f:"#F5C4B3",s:"#993C1D",t:"#712B13"},arrow:{f:"#B5D4F4",s:"#185FA5",t:"#0C447C"},feel:{f:"#CECBF6",s:"#534AB7",t:"#3C3489"},mark:{f:"#E7E3DA",s:"#4A453C",t:"#2A2620"}};
   const LIFE=5000, COOL=900;
@@ -2999,7 +3001,7 @@ function emoIcon(i){
     if (!fbRoot || watchReq.on) return; watchReq.on=true;
     fbRoot.child("fxReq").on("value",sn=>{ if (!isDM() || !amLeader) return; const v=sn.val(); if (!v) return; let changed=false; const L=decoList(), clear={};
       for (const src in v) for (const k in v[src]){ const r=v[src][k]; clear[src+"/"+k]=null;
-        if (r.k==="pin" && (SYM[r.s]!=null || r.s===TXT)){ const d={t:"emo",s:r.s,x:r.x,y:r.y,by:tokName(src),area:decoAreaAt(r.x,r.y),id:"e"+uid()}; if (r.s===TXT){ d.txt=String(r.txt||"").slice(0,80); d.f=Number.isInteger(r.f)?r.f:0; } L.push(d); changed=true; }
+        if (r.k==="pin" && ((SYM[r.s]!=null && r.s!==20) || r.s===TXT)){ const d={t:"emo",s:r.s,x:r.x,y:r.y,by:tokName(src),area:decoAreaAt(r.x,r.y),id:"e"+uid()}; if (r.s===TXT){ d.txt=String(r.txt||"").slice(0,80); d.f=Number.isInteger(r.f)?r.f:0; } L.push(d); changed=true; }
         else if (r.k==="rm"){ const i=L.findIndex(d=>d.t==="emo"&&((r.id&&d.id===r.id)||(!r.id&&Math.hypot(d.x-r.x,d.y-r.y)<0.5&&d.s===r.s))); if (i>=0){ L.splice(i,1); changed=true; } } }
       if (changed){ commit(); renderBoard(); }
       fbRoot.child("fxReq").update(clear).catch(()=>{}); },()=>{});
@@ -3019,7 +3021,7 @@ function emoIcon(i){
     closeMenu(); let pin=false;
     menu=document.createElement("div"); menu.id="emoMenu";
     const head=document.createElement("div"); head.className="hd"; head.textContent=o.on?("Emote: "+tokName(o.src)):("Marker"+(o.src?" from "+tokName(o.src):"")); menu.appendChild(head);
-    SYM.forEach((s,i)=>{ const c=COL[KIND(i)], b=document.createElement("button"); b.innerHTML=`<svg viewBox="0 0 100 100" width="26" height="26">${emoIcon(i)}</svg>`; b.title=NAMES[i]; b.style.background="#fff"; b.style.borderColor=EMO_O;
+    SYM.forEach((s,i)=>{ if (i===20 && !isDM()) return; const c=COL[KIND(i)], b=document.createElement("button"); b.innerHTML=`<svg viewBox="0 0 100 100" width="26" height="26">${emoIcon(i)}</svg>`; b.title=NAMES[i]; b.style.background="#fff"; b.style.borderColor=EMO_O;
       b.onclick=()=>{ closeMenu(); send(o.src,i,o.x,o.y,o.on,pin&&!o.on); }; menu.appendChild(b); });
     if (!o.on){ const p=document.createElement("button"); p.className="wide"; p.textContent="📌 Keep it on the map (pin)"; p.onclick=()=>{ pin=!pin; p.classList.toggle("on",pin); p.textContent=pin?"📌 Will pin: pick a symbol":"📌 Keep it on the map (pin)"; }; menu.appendChild(p); }
     if (o.path){ const p=document.createElement("button"); p.className="wide"; p.textContent="📏 Plan a path from here"; p.onclick=()=>{ closeMenu(); o.path(); }; menu.appendChild(p); }
@@ -3425,6 +3427,113 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
   svg.addEventListener("pointerdown",e=>{ if (!active()) return; if (e.pointerType!=="touch"){ show(null); return; }
     const txt=labelAt(e.clientX,e.clientY); clearTimeout(hideT); show(txt,e.clientX,e.clientY-30); if (txt) hideT=setTimeout(()=>show(null),1800); });
   window.addEventListener("scroll",()=>show(null),{passive:true});
+})();
+
+// ---- leaner live sync: the board is stored in pieces and only the pieces that changed are sent ----
+(function(){
+  const J=v=>{ const s=JSON.stringify(v); return s===undefined?null:s; };
+  // vision polygons are long lists of points: send them as small integer steps instead
+  const encVis=v=>{ if (!Array.isArray(v)) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
+    return "~"+f+"|"+v.map(P=>{ let px=0,py=0; return P.map(p=>{ const x=Math.round(p[0]*f), y=Math.round(p[1]*f), s=(x-px)+","+(y-py); px=x; py=y; return s; }).join(";"); }).join("|"); };
+  const decVis=s=>{ const a=s.slice(1).split("|"), f=+a[0]; return a.slice(1).map(P=>{ let x=0,y=0; return P?P.split(";").map(q=>{ const [dx,dy]=q.split(","); x+=+dx; y+=+dy; return [x/f,y/f]; }):[]; }); };
+  function flat(o,split){            // split: {tokens:true, setup:true}
+    const out={};
+    for (const k in o){
+      if (k==="tokens"){ (o.tokens||[]).forEach(t=>{ out["t/"+t.id]=J(t); }); out.o=(o.tokens||[]).map(t=>t.id).join(","); continue; }
+      if (k==="setup" && split.setup && o.setup){ for (const s in o.setup){ const v=J(o.setup[s]); if (v!=null) out["s/"+s]=v; } out.hs="1"; continue; }
+      if (k==="vis" && !split.setup){ const e=encVis(o[k]); if (e!=null){ out["p/"+k]=e; continue; } }
+      const v=J(o[k]); if (v!=null) out["p/"+k]=v;
+    }
+    return out;
+  }
+  function rawOf(x){ const out={}; if (!x) return out; ["p","t","s"].forEach(g=>{ const m=x[g]; if (m) for (const k in m) out[g+"/"+k]=m[k]; }); if (x.o!=null) out.o=x.o; if (x.hs!=null) out.hs=x.hs; return out; }
+  const pcache=new Map();
+  const parseP=(key,s,cache)=>{ const P=x=>x.charAt(0)==="~"?decVis(x):JSON.parse(x); if (!cache) return P(s); const h=pcache.get(key); if (h && h.s===s) return h.v; const v=P(s); pcache.set(key,{s,v}); return v; };
+  function rebuild(x,cache){
+    if (!x) return null;
+    if (typeof x.state==="string" && !x.p) return JSON.parse(x.state);
+    if (!x.p && !x.t) return null;
+    const o={}; for (const k in (x.p||{})) o[k]=parseP(k,x.p[k],cache);
+    const T=x.t||{}, seen=new Set(); o.tokens=[];
+    String(x.o||"").split(",").forEach(id=>{ if (id && T[id]!=null && !seen.has(id)){ o.tokens.push(JSON.parse(T[id])); seen.add(id); } });
+    for (const id in T) if (!seen.has(id)) o.tokens.push(JSON.parse(T[id]));
+    if (x.s || x.hs){ o.setup={}; for (const k in (x.s||{})) o.setup[k]=JSON.parse(x.s[k]); }
+    return o;
+  }
+  function diff(base,f,sent){ const u={}; for (const k in f) if (sent[k]!==f[k]) u[base+"/"+k]=f[k]; for (const k in sent) if (!(k in f)) u[base+"/"+k]=null; return u; }
+  window.__syncRebuildDM=x=>rebuild(x,false);
+  window.__syncFlat=flat; window.__syncRebuild=rebuild; window.__syncDiff=diff;
+
+  let sentDM={}, sentPub={}, legacyCleared=false;
+  pushShared=async function(){
+    if (!fbRoot || MODE!=="dm" || !canWrite) return;
+    if (writing){ writeAgain=true; return; }
+    writing=true;
+    try {
+      const mv={}; S.tokens.forEach(t=>{ if(t.playerMove && !t.hidden && onTurn(S,t)) mv[t.id]=true; });
+      const at=Date.now(); ui.myAt=at;
+      const fD=flat(S,{setup:true}), fP=flat(publicView(S),{});
+      const upd=Object.assign(diff("dm",fD,sentDM), diff("public",fP,sentPub));
+      upd["dm/writer"]=TAB; upd["dm/at"]=at; upd["public/at"]=at; upd.movable=Object.keys(mv).length?mv:null;
+      if (!legacyCleared){ upd["dm/state"]=null; upd["public/state"]=null; }
+      await fbRoot.update(upd);
+      sentDM=fD; sentPub=fP; legacyCleared=true;
+      if (/Couldn't sync/.test(document.getElementById("status").textContent)) setStatus("Signed in as DM. Players see your moves live.");
+    } catch(e){
+      if (/permission/i.test(String(e&&e.message||e))){ canWrite=false; setStatus("This account isn't on the DM list in your database rules."); }
+      else setStatus("Couldn't sync just now. Your changes are saved in this browser.");
+    }
+    writing=false; if (writeAgain){ writeAgain=false; pushShared(); }
+  };
+  pushLivePublic=function(){
+    livePubTimer=null; livePubLast=Date.now(); if (!fbRoot || !canWrite || MODE!=="dm" || !amLeader) return;
+    if (Object.keys(moveQ).length && !ui.dragging){ clearTimeout(moveTimer); flushMoves(); }
+    const fresh=Object.keys(liveMap).filter(id=>nowServer()-(liveMap[id].at||0)<5000); if (!fresh.length) return;
+    const T=Object.assign({},S,{tokens:S.tokens.map(t=>{ const L=liveMap[t.id]; return (L&&fresh.includes(t.id)) ? Object.assign({},t,{x:L.x,y:L.y}) : t; })});
+    updateExplored(computeVision(T)); T.explored=S.explored; T.seenAreas=S.seenAreas;
+    const fP=flat(publicView(T),{}), upd=diff("public",fP,sentPub); if (!Object.keys(upd).length) return;
+    upd["public/at"]=Date.now();
+    fbRoot.update(upd).then(()=>{ sentPub=fP; }).catch(()=>{});
+  };
+  watchPublic=function(){
+    setStatus("Connecting to the live board…");
+    firebase.database().ref(".info/serverTimeOffset").on("value", sn=>{ serverOffset=sn.val()||0; }); watchLive(); startPresence("player");
+    fbRoot.child("public").on("value", snap=>{
+      const v=snap.val();
+      if (!v||(!v.p&&!v.state)){ setStatus("Waiting for the DM to open the board"); return; }
+      const sig=v.p?("a"+v.at):v.state; if (sig===ui.lastPub) return; ui.lastPub=sig;
+      let next; try { next=asPlayerState(rebuild(v,true)); } catch(e){ return; }
+      if (ui.dragging && drag && drag.player){
+        const keep=drag.ids.map(id=>tok(id)).filter(Boolean).map(t=>({id:t.id,x:t.x,y:t.y}));
+        S=holdLive(reconcile(next)); keep.forEach(k=>{ const t=tok(k.id); if(t){ t.x=k.x; t.y=k.y; } }); renderAll(); return; }
+      if (ui.dragging){ pendingPublic=next; return; }
+      S=holdLive(reconcile(next)); setStatus(S.tokens.some(t=>t.movable)?"Live: you can drag your highlighted tokens":"Live"); renderAll();
+    }, ()=>setStatus("Couldn't connect to the live board."));
+  };
+  becomeDM=async function(){
+    MODE="dm"; document.body.classList.remove("player");
+    document.getElementById("loginCard").hidden=true; document.getElementById("app").hidden=false;
+    document.getElementById("signOutBtn").hidden=false;
+    try {
+      const snap=await fbRoot.child("dm").once("value"); const v=snap.val();
+      const raw=rebuild(v,false);
+      if (raw){ const old=raw.mapScale!==2; S=scaleState(raw,old); lastJSON=JSON.stringify(S); saveLocal(); if (old) setTimeout(()=>setStatus("Map converted to 5 ft squares. The old board is saved in this browser."),1500); }
+      if (v && v.p){ sentDM=rawOf(v); legacyCleared=!v.state; }
+      try { const ps=await fbRoot.child("public").once("value"); const pv=ps.val(); if (pv && pv.p) sentPub=rawOf(pv); } catch(e){}
+      pushShared(); listenLive();
+      fbRoot.child("dm").on("value", sn=>{
+        const x=sn.val(); if(!x||(!x.p&&!x.state)||x.writer===TAB||x.at===ui.remoteAt) return; ui.remoteAt=x.at;
+        let next; try{ next=scaleState(rebuild(x,false),false); }catch(e){ return; }
+        if (x.p) sentDM=rawOf(x);
+        if (ui.dragging){ pendingRemote=next; return; }
+        applyRemote(next);
+      });
+      setStatus("Signed in as DM. Players see your moves live.");
+    } catch(e){
+      setStatus(/permission/i.test(String(e&&e.message||e)) ? "This account isn't on the DM list in your database rules." : "Couldn't reach the live board.");
+    }
+    pruneSelection(); renderAll(); updateUndo();
+  };
 })();
 
 })();
