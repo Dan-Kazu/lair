@@ -202,7 +202,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
     <button id="envClear">Clear effects</button>
     <span class="sep"></span>
     <button id="decoEditBtn">Edit map features: off</button>
-    <select id="decoAdd" aria-label="Add a map feature" hidden><option value="">Click a feature to select it</option><option value="tri">Click to add: crystal</option><option value="dia">Click to add: geode</option><option value="lamp">Click to add: lantern</option><option value="out">Click to add: smashed lantern</option><option value="crate">Click to add: crates (3/4 cover)</option><option value="barrel">Click to add: barrel (half cover)</option><option value="rubble">Click to add: rubble (half cover)</option><option value="boulder">Click to add: boulder (3/4 cover)</option><option value="stal">Click to add: stalagmite (full cover)</option><option value="lowwall">Click to add: low wall (half cover)</option></select>
+    <select id="decoAdd" aria-label="Add a map feature" hidden><option value="">Click a feature to select it</option><option value="tri">Click to add: crystal</option><option value="dia">Click to add: geode</option><option value="lamp">Click to add: lantern</option><option value="out">Click to add: smashed lantern</option><option value="crate">Click to add: crates (3/4 cover)</option><option value="barrel">Click to add: barrel (half cover)</option><option value="rubble">Click to add: rubble (half cover)</option><option value="boulder">Click to add: boulder (3/4 cover)</option><option value="stal">Click to add: stalagmite (full cover)</option><option value="tent">Click to add: tent (3/4 cover)</option><option value="bigtent">Click to add: large tent (3/4 cover)</option><option value="fire">Click to add: campfire (light)</option><option value="bedroll">Click to add: bedroll</option><option value="log">Click to add: log seat (half cover)</option><option value="sacks">Click to add: supply sacks (half cover)</option><option value="lowwall">Click to add: low wall (half cover)</option></select>
     <span id="decoTools" hidden><button id="decoRot">Rotate</button> <button id="decoBig">Bigger</button> <button id="decoSmall">Smaller</button> <button id="decoDel">Delete</button> <select id="decoCover" aria-label="Cover this feature gives"><option value="">Cover: automatic</option><option value="0">Cover: none</option><option value="1">Cover: half (+2)</option><option value="2">Cover: three-quarters (+5)</option><option value="3">Cover: total</option></select></span>
     <span class="sep"></span>
     <button id="addTokBtn">Add token</button>
@@ -677,7 +677,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-19d";
+const APP_VER = "2026-11-20a";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -805,6 +805,9 @@ function drawDeco(g, defs){
   if (!defs.querySelector("#lampglow")){ const rg=el("radialGradient",{id:"lampglow"},defs);
     el("stop",{offset:"0%","stop-color":"#C9A0FF","stop-opacity":0.42},rg); el("stop",{offset:"55%","stop-color":"#9E7BE0","stop-opacity":0.16},rg); el("stop",{offset:"100%","stop-color":"#9E7BE0","stop-opacity":0},rg); }
   D.forEach(d=>{ if(d.t==="lamp"&&!d.out) el("circle",{cx:fx(d.x),cy:fy(d.y),r:(d.r||20)*U,fill:"url(#lampglow)"},g); });
+  if (!defs.querySelector("#fireglow")){ const fg=el("radialGradient",{id:"fireglow"},defs);
+    el("stop",{offset:"0%","stop-color":"#FFB347","stop-opacity":0.45},fg); el("stop",{offset:"55%","stop-color":"#F07C2A","stop-opacity":0.15},fg); el("stop",{offset:"100%","stop-color":"#F07C2A","stop-opacity":0},fg); }
+  D.forEach(d=>{ if(d.t==="fire"&&!d.out) el("circle",{cx:fx(d.x),cy:fy(d.y),r:(d.lr||20)*U,fill:"url(#fireglow)"},g); });
   D.forEach(d=>{
     const X=fx(d.x), Y=fy(d.y);
     if (d.t==="sq") el("rect",{x:X-d.s/2*U,y:Y-d.s/2*U,width:d.s*U,height:d.s*U,fill:d.f,stroke:d.st,"stroke-width":2},g);
@@ -814,11 +817,13 @@ function drawDeco(g, defs){
       if (d.pl){ let p=""; const n=Math.max(1,Math.floor(d.l/d.pl)); for(let i=1;i<n;i++){ const x=-w/2+i*w/n; p+=`M${x} ${-h/2}V${h/2}`; } el("path",{d:p,stroke:d.st,"stroke-width":0.8,"stroke-opacity":0.7,fill:"none",transform:tr},g); } }
     else if (d.t==="circ") el("circle",{cx:X,cy:Y,r:d.r*U,fill:d.f||"none",stroke:d.st,"stroke-width":d.sw||1.2,"stroke-dasharray":d.dash?"4 3":"none"},g);
     else if (d.t==="stal") drawStal(g,X,Y,d);
+    else if (d.t==="tent") drawTent(g,X,Y,d);
+    else if (d.t==="fire") drawFire(g,X,Y,d);
     else if (d.t==="lamp"){ el("circle",{cx:X,cy:Y,r:1.8*U,fill:d.out?"#4A4038":"#F7B24A",stroke:"#2A1E10","stroke-width":0.8},g);
       if (d.out){ el("path",{d:`M${X-1.8*U} ${Y-1.8*U}L${X+1.8*U} ${Y+1.8*U}M${X+1.8*U} ${Y-1.8*U}L${X-1.8*U} ${Y+1.8*U}`,stroke:"#2A1E10","stroke-width":0.6},g); } }
   });
   if (MODE==="dm" && ui.decoEdit && ui.decoSel!=null && D[ui.decoSel]){ const d=D[ui.decoSel];
-    const r=d.t==="cry"?d.s*0.9+3:d.t==="lamp"?5:(d.t==="circ"||d.t==="stal")?d.r+3:d.t==="rect"?Math.hypot(d.l,d.w)/2+3:d.t==="sq"?d.s*0.75:12;
+    const r=d.t==="cry"?d.s*0.9+3:d.t==="lamp"?5:d.t==="fire"?(d.r||2.5)+3:(d.t==="circ"||d.t==="stal")?d.r+3:(d.t==="rect"||d.t==="tent")?Math.hypot(d.l,d.w)/2+3:d.t==="sq"?d.s*0.75:12;
     g.__sel={x:fx(d.x),y:fy(d.y),r:r*U}; }
   const C=D.filter(d=>d.t==="cry"); if(!C.length){ decoMark(g); return; }
   let glow="", base="", dark="", lite="", hi="";
@@ -829,10 +834,10 @@ function drawDeco(g, defs){
       base+=poly(p); lite+=poly([p[0],p[1],c]); dark+=poly([p[1],p[2],c]); hi+=`M${pt(p[0])}L${pt(c)}L${pt(p[2])}`; }
     else { const h=s*0.866, p=[R(0,-h*2/3),R(s/2,h/3),R(-s/2,h/3)], m=R(0,h/3), c=R(0,0);
       base+=poly(p); dark+=poly([p[0],p[1],m]); lite+=poly([p[0],c,p[2]]); hi+=`M${pt(p[0])}L${pt(m)}`; } });
-  el("path",{d:glow,fill:"#F5B040","fill-opacity":0.22},g);
-  el("path",{d:base,fill:"#E39A22"},g); el("path",{d:dark,fill:"#94520C"},g); el("path",{d:lite,fill:"#F6BE4C"},g);
-  el("path",{d:hi,fill:"none",stroke:"#FFF3C4","stroke-width":0.44*U},g);
-  el("path",{d:base,fill:"none",stroke:"#4A2A04","stroke-width":0.56*U,"stroke-linejoin":"round"},g);
+  el("path",{d:glow,fill:"#D6D8DE","fill-opacity":0.16},g);
+  el("path",{d:base,fill:"#9EA1A8"},g); el("path",{d:dark,fill:"#5F6168"},g); el("path",{d:lite,fill:"#C9CBD1"},g);
+  el("path",{d:hi,fill:"none",stroke:"#F3F4F7","stroke-width":0.44*U},g);
+  el("path",{d:base,fill:"none",stroke:"#2A2B30","stroke-width":0.56*U,"stroke-linejoin":"round"},g);
   decoMark(g);
 }
 function decoMark(g){ if(g.__sel) el("circle",{cx:g.__sel.x,cy:g.__sel.y,r:g.__sel.r,fill:"none",stroke:"#FFD84A","stroke-width":1.2,"stroke-dasharray":"3 2"},g); }
@@ -2210,18 +2215,25 @@ function decoList(){ if (S.setup){ if(!S.setup.deco) S.setup.deco=[]; return S.s
 function decoHit(d,x,y){
   if (d.t==="cry") return Math.hypot(d.x-x,d.y-y)<=Math.max(1.5,d.s*0.7);
   if (d.t==="lamp") return Math.hypot(d.x-x,d.y-y)<=2;
+  if (d.t==="fire") return Math.hypot(d.x-x,d.y-y)<=Math.max(2,d.r||2.5);
   if (d.t==="circ"||d.t==="stal") return Math.hypot(d.x-x,d.y-y)<=Math.max(1.5,d.r);
-  if (d.t==="rect"){ const a=-(d.rot||0)*Math.PI/180, dx=x-d.x, dy=y-d.y, u=dx*Math.cos(a)-dy*Math.sin(a), v=dx*Math.sin(a)+dy*Math.cos(a); return Math.abs(u)<=d.l/2+0.5&&Math.abs(v)<=d.w/2+0.5; }
+  if (d.t==="rect"||d.t==="tent"){ const a=-(d.rot||0)*Math.PI/180, dx=x-d.x, dy=y-d.y, u=dx*Math.cos(a)-dy*Math.sin(a), v=dx*Math.sin(a)+dy*Math.cos(a); return Math.abs(u)<=d.l/2+0.5&&Math.abs(v)<=d.w/2+0.5; }
   if (d.t==="sq") return Math.abs(x-d.x)<=d.s/2&&Math.abs(y-d.y)<=d.s/2;
   if (d.t==="dot") return Math.hypot(d.x-x,d.y-y)<=Math.max(2,d.r/U);
   return false; }
 function decoAreaAt(x,y){ const a=(typeof areaAt==="function")?areaAt(x,y):null; return a?a.id:"5"; }
-const DECO_NAME={cry:"Crystal",lamp:"Lantern",circ:"Feature",stal:"Stalagmite",rect:"Structure",sq:"Marker",dot:"Marker"};
+const DECO_NAME={cry:"Crystal",lamp:"Lantern",circ:"Feature",stal:"Stalagmite",tent:"Tent",fire:"Campfire",rect:"Structure",sq:"Marker",dot:"Marker"};
 const COVER_PIECES={
   crate:()=>({t:"rect",l:7,w:7,rot:[0,10,-10,20][Math.floor(Math.random()*4)],f:"#7A5A3A",st:"#3A2A18",pl:3.5,cv:2}),
   barrel:()=>({t:"circ",r:2.2,f:"#7A4E2A",st:"#3A2210",sw:1.2,cv:1}),
   rubble:()=>({t:"circ",r:4.5,f:"#6E665A",st:"#3A3328",sw:1.2,cv:1}),
   boulder:()=>({t:"circ",r:8.5,f:"#6E665A",st:"#3A3328",sw:1.4,cv:2}),
+  tent:()=>({t:"tent",l:10,w:8,rot:[0,10,-10,90][Math.floor(Math.random()*4)],f:["#8C7A5A","#7A6A55","#6F7A5A","#8A5E48"][Math.floor(Math.random()*4)],cv:2}),
+  bigtent:()=>({t:"tent",l:16,w:12,rot:0,f:"#7E6C50",cv:2}),
+  fire:()=>({t:"fire",r:2.5,lr:20,cv:0}),
+  bedroll:()=>({t:"rect",l:6.5,w:2.6,rot:[0,20,-20,70][Math.floor(Math.random()*4)],f:["#5B6E8C","#8C4A4A","#5E7A55","#7A6A4E"][Math.floor(Math.random()*4)],st:"#2A241C",cv:0}),
+  log:()=>({t:"rect",l:8,w:2,rot:[0,30,-30,60][Math.floor(Math.random()*4)],f:"#6B4A2E",st:"#2E1F12",cv:1}),
+  sacks:()=>({t:"circ",r:2.4,f:"#B39B6E",st:"#4A3C24",sw:1.2,cv:1}),
   stal:()=>({t:"stal",r:[2.5,3.5,4.5,6][Math.floor(Math.random()*4)],cv:3,seed:Math.floor(Math.random()*1e6)}),
   lowwall:()=>({t:"rect",l:14,w:2.6,rot:0,f:"#8A8072",st:"#3A3328",cv:1})};
 const COVER_WORD=["no cover","half cover","three-quarters cover","total cover"];
@@ -2230,7 +2242,7 @@ function decoUI(){
   b.textContent="Edit map features: "+(on?"on":"off"); b.classList.toggle("on",on); b.classList.toggle("primary",on);
   document.getElementById("decoAdd").hidden=!on; const tools=document.getElementById("decoTools");
   const d=on&&ui.decoSel!=null?decoList()[ui.decoSel]:null; tools.hidden=!d;
-  const cs=document.getElementById("decoCover"); if (cs&&d){ cs.value=d.cv!=null?String(d.cv):""; cs.hidden=d.t==="lamp"; }
+  const cs=document.getElementById("decoCover"); if (cs&&d){ cs.value=d.cv!=null?String(d.cv):""; cs.hidden=d.t==="lamp"||d.t==="fire"; }
   if (on) setStatus(d ? `${d.t==="cry"&&d.k==="dia"?"Geode":DECO_NAME[d.t]||"Feature"} selected (${COVER_WORD[decoCover(d)]}): drag to move, or use Rotate / Bigger / Smaller / Delete (Delete key works too).` : "Editing map features: click a crystal, lantern or structure to select it.");
 }
 let decoDrag=null;
@@ -2254,7 +2266,7 @@ svg.addEventListener("pointermove",e=>{
 const decoUp=e=>{ if(!decoDrag) return; e.stopImmediatePropagation(); const d=decoList()[decoDrag.i]; if (decoDrag.moved&&d){ d.area=decoAreaAt(d.x,d.y); commit(); } decoDrag=null; };
 svg.addEventListener("pointerup",decoUp,true); svg.addEventListener("pointercancel",decoUp,true);
 function decoChange(f){ const L=decoList(), d=L[ui.decoSel]; if(!d) return; f(d,L); commit(); renderBoard(); decoUI(); }
-const decoScale=k=>d=>{ if(d.t==="cry") d.s=Math.max(1,Math.min(10,Math.round(d.s*k*10)/10)); else if(d.t==="rect"){ d.l=Math.round(d.l*k*10)/10; d.w=Math.round(d.w*k*10)/10; } else if(d.t==="circ"||d.t==="stal") d.r=Math.max(1.5,Math.round(d.r*k*10)/10); else if(d.t==="lamp") d.r=Math.max(5,Math.round(d.r*k)); else if(d.t==="sq") d.s=Math.round(d.s*k*10)/10; else if(d.t==="dot") d.r=Math.round(d.r*k*10)/10; };
+const decoScale=k=>d=>{ if(d.t==="cry") d.s=Math.max(1,Math.min(10,Math.round(d.s*k*10)/10)); else if(d.t==="rect"||d.t==="tent"){ d.l=Math.round(d.l*k*10)/10; d.w=Math.round(d.w*k*10)/10; } else if(d.t==="fire"){ d.r=Math.max(1.5,Math.round((d.r||2.5)*k*10)/10); } else if(d.t==="circ"||d.t==="stal") d.r=Math.max(1.5,Math.round(d.r*k*10)/10); else if(d.t==="lamp") d.r=Math.max(5,Math.round(d.r*k)); else if(d.t==="sq") d.s=Math.round(d.s*k*10)/10; else if(d.t==="dot") d.r=Math.round(d.r*k*10)/10; };
 document.getElementById("decoEditBtn").onclick=()=>{ ui.decoEdit=!ui.decoEdit; ui.decoSel=null; decoDrag=null;
   if (ui.decoEdit && ui.env){ ui.env=null; document.getElementById("envSel").value=""; }
   if (!ui.decoEdit){ document.getElementById("decoAdd").value=""; setStatus(""); }
@@ -2335,7 +2347,7 @@ function fullFloor(st){
 function ffAt(st,x,y){ const i=rIdx(x,y); return i>=0 && fullFloor(st).d[i]>=128; }
 function lightSources(st){
   const L=[];
-  decoOf(st).forEach(d=>{ if(d.t==="lamp"&&!d.out){ const r=d.r||20; L.push({x:d.x,y:d.y,b:r,d:r}); } });
+  decoOf(st).forEach(d=>{ if(d.t==="lamp"&&!d.out){ const r=d.r||20; L.push({x:d.x,y:d.y,b:r,d:r}); } if(d.t==="fire"&&!d.out){ const r=d.lr||20; L.push({x:d.x,y:d.y,b:r,d:r}); } });
   (st.tokens||[]).forEach(t=>{ if(t.dead||!t.light||t.lightOff) return; const L0=lightDef(t.light); if(!L0) return; L.push({x:t.x,y:t.y,b:L0.b,d:L0.d,cone:L0.cone?(t.face||0):null}); });
   return L;
 }
@@ -2485,13 +2497,13 @@ function decoIndex(st){
   const D=decoOf(st), sig=D.length+"|"+D.reduce((a,d)=>a+(d.x||0)+(d.y||0)*3+(d.cv||0)*7+(d.l||d.r||d.s||0)+(d.rot||0),0).toFixed(1);
   if (decoIdxCache.arr===D && decoIdxCache.sig===sig) return decoIdxCache;
   const B=new Map(), C=40;
-  D.forEach(d=>{ const lv=decoCover(d); if(!lv) return; const R=d.t==="rect"?Math.hypot(d.l,d.w)/2:(d.t==="circ"||d.t==="stal")?d.r:(d.s||0)*0.6;
+  D.forEach(d=>{ const lv=decoCover(d); if(!lv) return; const R=(d.t==="rect"||d.t==="tent")?Math.hypot(d.l,d.w)/2:(d.t==="circ"||d.t==="stal")?d.r:(d.s||0)*0.6;
     const it={d,lv,R}; for (let gx=Math.floor((d.x-R)/C); gx<=Math.floor((d.x+R)/C); gx++) for (let gy=Math.floor((d.y-R)/C); gy<=Math.floor((d.y+R)/C); gy++){ const k=gx+","+gy; if(!B.has(k)) B.set(k,[]); B.get(k).push(it); } });
   decoIdxCache={arr:D,sig,B,C}; return decoIdxCache;
 }
 // does the segment a->b pass through feature d? (rects are tested in their own rotated frame)
 function segHitsDeco(d,a,b){
-  if (d.t!=="rect"){ const r=(d.t==="circ"||d.t==="stal")?d.r:(d.s||0)*0.6; return segDist(d.x,d.y,a,b)<r*0.9; }
+  if (d.t!=="rect"&&d.t!=="tent"){ const r=(d.t==="circ"||d.t==="stal")?d.r:(d.s||0)*0.6; return segDist(d.x,d.y,a,b)<r*0.9; }
   const an=-(d.rot||0)*Math.PI/180, c=Math.cos(an), s=Math.sin(an), L=p=>{ const dx=p[0]-d.x, dy=p[1]-d.y; return [dx*c-dy*s, dx*s+dy*c]; };
   const p=L(a), q=L(b), hx=d.l/2*0.92, hy=d.w/2*0.92; let t0=0,t1=1; const dx=q[0]-p[0], dy=q[1]-p[1];
   for (const [P,Q] of [[-dx,p[0]+hx],[dx,hx-p[0]],[-dy,p[1]+hy],[dy,hy-p[1]]]){ if (P===0){ if(Q<0) return false; continue; } const r=Q/P; if (P<0){ if(r>t1) return false; if(r>t0) t0=r; } else { if(r<t0) return false; if(r<t1) t1=r; } }
@@ -2623,8 +2635,8 @@ function playerStealthBlock(t){
     lab.appendChild(s); }); }; }
 { const bb=document.getElementById("battleBtn"); if (bb){ const b=document.createElement("button"); b.id="lightBtn"; b.className="dm-only"; const lab=()=>{ b.textContent="Lighting: "+(lightingOn(S)?"on":"off"); b.classList.toggle("on",lightingOn(S)); }; lab();
     b.onclick=()=>{ if(lightingOn(S)) S.lighting=false; else delete S.lighting; commit(); renderAll(); lab(); }; bb.after(b); const _rr=renderRound; renderRound=function(){ _rr(); lab(); }; } }
-{ const tools=document.getElementById("decoTools"); if (tools){ const b=document.createElement("button"); b.id="decoLit"; b.textContent="Light / snuff"; b.onclick=()=>decoChange(d=>{ if(d.t==="lamp"){ if(d.out) delete d.out; else d.out=true; } }); tools.appendChild(document.createTextNode(" ")); tools.appendChild(b);
-    const _du=decoUI; decoUI=function(){ _du(); const d=ui.decoEdit&&ui.decoSel!=null?decoList()[ui.decoSel]:null; b.hidden=!(d&&d.t==="lamp"); }; } }
+{ const tools=document.getElementById("decoTools"); if (tools){ const b=document.createElement("button"); b.id="decoLit"; b.textContent="Light / snuff"; b.onclick=()=>decoChange(d=>{ if(d.t==="lamp"||d.t==="fire"){ if(d.out) delete d.out; else d.out=true; } }); tools.appendChild(document.createTextNode(" ")); tools.appendChild(b);
+    const _du=decoUI; decoUI=function(){ _du(); const d=ui.decoEdit&&ui.decoSel!=null?decoList()[ui.decoSel]:null; b.hidden=!(d&&(d.t==="lamp"||d.t==="fire")); }; } }
 
 try { renderAll(); } catch(e){}
 // ---- path ruler, measuring from a token, right-click movement path ----
@@ -2837,6 +2849,27 @@ function drawStal(g,X,Y,d){
   el("path",{d:ring(R*0.66,8,0.3),fill:"#B5AC9E",stroke:"#3A352F","stroke-width":0.6,"stroke-opacity":0.7,"stroke-linejoin":"round"},g);
   el("path",{d:ring(R*0.34,6,0.35),fill:"#D2CABB"},g);
   el("circle",{cx:X-R*0.06,cy:Y-R*0.08,r:Math.max(0.8,R*0.1),fill:"#F1ECE2"},g);
+}
+
+
+// ---- camp pieces: tents and campfires ----
+function drawTent(g,X,Y,d){
+  const w=d.l*U, h=d.w*U, tr=`translate(${X},${Y}) rotate(${d.rot||0})`, gg=el("g",{transform:tr},g), f=d.f||"#8C7A5A";
+  el("rect",{x:-w/2+0.8,y:-h/2+1,width:w,height:h,rx:1.5,fill:"#000","fill-opacity":0.25},gg);
+  el("rect",{x:-w/2,y:-h/2,width:w,height:h,rx:1.5,fill:f,stroke:"#2A2218","stroke-width":0.6},gg);
+  el("path",{d:`M${-w/2} ${-h/2}L${-w/2+h*0.35} 0L${-w/2} ${h/2}Z`,fill:"#000","fill-opacity":0.18},gg);
+  el("rect",{x:-w/2,y:-h/2,width:w,height:h/2,fill:"#fff","fill-opacity":0.12},gg);
+  el("line",{x1:-w/2,y1:0,x2:w/2,y2:0,stroke:"#2A2218","stroke-width":0.5,"stroke-opacity":0.8},gg);
+  el("path",{d:`M${w/2} ${-h*0.28}L${w/2-h*0.3} 0L${w/2} ${h*0.28}`,fill:"#1E1810","fill-opacity":0.55,stroke:"#2A2218","stroke-width":0.4},gg);
+  [[-w/2,-h/2],[w/2,-h/2],[-w/2,h/2],[w/2,h/2]].forEach(([px,py])=>el("circle",{cx:px+(px<0?-0.7:0.7),cy:py+(py<0?-0.7:0.7),r:0.3,fill:"#2A2218"},gg));
+}
+function drawFire(g,X,Y,d){
+  const R=(d.r||2.5)*U;
+  for (let i=0;i<8;i++){ const a=i/8*Math.PI*2; el("circle",{cx:X+Math.cos(a)*R,cy:Y+Math.sin(a)*R,r:R*0.28,fill:"#6E665A",stroke:"#2E2A25","stroke-width":0.5},g); }
+  el("circle",{cx:X,cy:Y,r:R*0.8,fill:"#2A1E14"},g);
+  el("path",{d:`M${X-R*0.6} ${Y-R*0.15}L${X+R*0.6} ${Y+R*0.15}M${X-R*0.15} ${Y+R*0.6}L${X+R*0.15} ${Y-R*0.6}`,stroke:"#5A3A20","stroke-width":R*0.22,"stroke-linecap":"round"},g);
+  if (!d.out){ el("circle",{cx:X,cy:Y,r:R*0.62,fill:"#F07C2A","fill-opacity":0.9},g); el("circle",{cx:X,cy:Y,r:R*0.38,fill:"#FFB347"},g); el("circle",{cx:X,cy:Y,r:R*0.16,fill:"#FFF1C2"},g); }
+  else el("circle",{cx:X,cy:Y,r:R*0.5,fill:"#4A4038","fill-opacity":0.8},g);
 }
 
 })();
