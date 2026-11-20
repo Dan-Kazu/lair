@@ -202,7 +202,7 @@ body.player #board .tok.mvbl{cursor:grab !important}
     <button id="envClear">Clear effects</button>
     <span class="sep"></span>
     <button id="decoEditBtn">Edit map features: off</button>
-    <select id="decoAdd" aria-label="Add a map feature" hidden><option value="">Click a feature to select it</option><option value="tri">Click to add: crystal</option><option value="dia">Click to add: geode</option><option value="lamp">Click to add: lantern</option><option value="out">Click to add: smashed lantern</option><option value="crate">Click to add: crates (3/4 cover)</option><option value="barrel">Click to add: barrel (half cover)</option><option value="rubble">Click to add: rubble (half cover)</option><option value="boulder">Click to add: boulder (3/4 cover)</option><option value="lowwall">Click to add: low wall (half cover)</option></select>
+    <select id="decoAdd" aria-label="Add a map feature" hidden><option value="">Click a feature to select it</option><option value="tri">Click to add: crystal</option><option value="dia">Click to add: geode</option><option value="lamp">Click to add: lantern</option><option value="out">Click to add: smashed lantern</option><option value="crate">Click to add: crates (3/4 cover)</option><option value="barrel">Click to add: barrel (half cover)</option><option value="rubble">Click to add: rubble (half cover)</option><option value="boulder">Click to add: boulder (3/4 cover)</option><option value="stal">Click to add: stalagmite (full cover)</option><option value="lowwall">Click to add: low wall (half cover)</option></select>
     <span id="decoTools" hidden><button id="decoRot">Rotate</button> <button id="decoBig">Bigger</button> <button id="decoSmall">Smaller</button> <button id="decoDel">Delete</button> <select id="decoCover" aria-label="Cover this feature gives"><option value="">Cover: automatic</option><option value="0">Cover: none</option><option value="1">Cover: half (+2)</option><option value="2">Cover: three-quarters (+5)</option><option value="3">Cover: total</option></select></span>
     <span class="sep"></span>
     <button id="addTokBtn">Add token</button>
@@ -676,7 +676,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-19c";
+const APP_VER = "2026-11-19d";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -812,11 +812,12 @@ function drawDeco(g, defs){
       el("rect",{x:-w/2,y:-h/2,width:w,height:h,rx:Math.min(w,h)*0.15,fill:d.f,stroke:d.st,"stroke-width":1.2,transform:tr},g);
       if (d.pl){ let p=""; const n=Math.max(1,Math.floor(d.l/d.pl)); for(let i=1;i<n;i++){ const x=-w/2+i*w/n; p+=`M${x} ${-h/2}V${h/2}`; } el("path",{d:p,stroke:d.st,"stroke-width":0.8,"stroke-opacity":0.7,fill:"none",transform:tr},g); } }
     else if (d.t==="circ") el("circle",{cx:X,cy:Y,r:d.r*U,fill:d.f||"none",stroke:d.st,"stroke-width":d.sw||1.2,"stroke-dasharray":d.dash?"4 3":"none"},g);
+    else if (d.t==="stal") drawStal(g,X,Y,d);
     else if (d.t==="lamp"){ el("circle",{cx:X,cy:Y,r:1.8*U,fill:d.out?"#4A4038":"#F7B24A",stroke:"#2A1E10","stroke-width":0.8},g);
       if (d.out){ el("path",{d:`M${X-1.8*U} ${Y-1.8*U}L${X+1.8*U} ${Y+1.8*U}M${X+1.8*U} ${Y-1.8*U}L${X-1.8*U} ${Y+1.8*U}`,stroke:"#2A1E10","stroke-width":0.6},g); } }
   });
   if (MODE==="dm" && ui.decoEdit && ui.decoSel!=null && D[ui.decoSel]){ const d=D[ui.decoSel];
-    const r=d.t==="cry"?d.s*0.9+3:d.t==="lamp"?5:d.t==="circ"?d.r+3:d.t==="rect"?Math.hypot(d.l,d.w)/2+3:d.t==="sq"?d.s*0.75:12;
+    const r=d.t==="cry"?d.s*0.9+3:d.t==="lamp"?5:(d.t==="circ"||d.t==="stal")?d.r+3:d.t==="rect"?Math.hypot(d.l,d.w)/2+3:d.t==="sq"?d.s*0.75:12;
     g.__sel={x:fx(d.x),y:fy(d.y),r:r*U}; }
   const C=D.filter(d=>d.t==="cry"); if(!C.length){ decoMark(g); return; }
   let glow="", base="", dark="", lite="", hi="";
@@ -2201,18 +2202,19 @@ function decoList(){ if (S.setup){ if(!S.setup.deco) S.setup.deco=[]; return S.s
 function decoHit(d,x,y){
   if (d.t==="cry") return Math.hypot(d.x-x,d.y-y)<=Math.max(1.5,d.s*0.7);
   if (d.t==="lamp") return Math.hypot(d.x-x,d.y-y)<=2;
-  if (d.t==="circ") return Math.hypot(d.x-x,d.y-y)<=Math.max(1.5,d.r);
+  if (d.t==="circ"||d.t==="stal") return Math.hypot(d.x-x,d.y-y)<=Math.max(1.5,d.r);
   if (d.t==="rect"){ const a=-(d.rot||0)*Math.PI/180, dx=x-d.x, dy=y-d.y, u=dx*Math.cos(a)-dy*Math.sin(a), v=dx*Math.sin(a)+dy*Math.cos(a); return Math.abs(u)<=d.l/2+0.5&&Math.abs(v)<=d.w/2+0.5; }
   if (d.t==="sq") return Math.abs(x-d.x)<=d.s/2&&Math.abs(y-d.y)<=d.s/2;
   if (d.t==="dot") return Math.hypot(d.x-x,d.y-y)<=Math.max(2,d.r/U);
   return false; }
 function decoAreaAt(x,y){ const a=(typeof areaAt==="function")?areaAt(x,y):null; return a?a.id:"5"; }
-const DECO_NAME={cry:"Crystal",lamp:"Lantern",circ:"Feature",rect:"Structure",sq:"Marker",dot:"Marker"};
+const DECO_NAME={cry:"Crystal",lamp:"Lantern",circ:"Feature",stal:"Stalagmite",rect:"Structure",sq:"Marker",dot:"Marker"};
 const COVER_PIECES={
   crate:()=>({t:"rect",l:7,w:7,rot:[0,10,-10,20][Math.floor(Math.random()*4)],f:"#7A5A3A",st:"#3A2A18",pl:3.5,cv:2}),
   barrel:()=>({t:"circ",r:2.2,f:"#7A4E2A",st:"#3A2210",sw:1.2,cv:1}),
   rubble:()=>({t:"circ",r:4.5,f:"#6E665A",st:"#3A3328",sw:1.2,cv:1}),
   boulder:()=>({t:"circ",r:8.5,f:"#6E665A",st:"#3A3328",sw:1.4,cv:2}),
+  stal:()=>({t:"stal",r:[2.5,3.5,4.5,6][Math.floor(Math.random()*4)],cv:3,seed:Math.floor(Math.random()*1e6)}),
   lowwall:()=>({t:"rect",l:14,w:2.6,rot:0,f:"#8A8072",st:"#3A3328",cv:1})};
 const COVER_WORD=["no cover","half cover","three-quarters cover","total cover"];
 function decoUI(){
@@ -2244,7 +2246,7 @@ svg.addEventListener("pointermove",e=>{
 const decoUp=e=>{ if(!decoDrag) return; e.stopImmediatePropagation(); const d=decoList()[decoDrag.i]; if (decoDrag.moved&&d){ d.area=decoAreaAt(d.x,d.y); commit(); } decoDrag=null; };
 svg.addEventListener("pointerup",decoUp,true); svg.addEventListener("pointercancel",decoUp,true);
 function decoChange(f){ const L=decoList(), d=L[ui.decoSel]; if(!d) return; f(d,L); commit(); renderBoard(); decoUI(); }
-const decoScale=k=>d=>{ if(d.t==="cry") d.s=Math.max(1,Math.min(10,Math.round(d.s*k*10)/10)); else if(d.t==="rect"){ d.l=Math.round(d.l*k*10)/10; d.w=Math.round(d.w*k*10)/10; } else if(d.t==="circ") d.r=Math.round(d.r*k*10)/10; else if(d.t==="lamp") d.r=Math.max(5,Math.round(d.r*k)); else if(d.t==="sq") d.s=Math.round(d.s*k*10)/10; else if(d.t==="dot") d.r=Math.round(d.r*k*10)/10; };
+const decoScale=k=>d=>{ if(d.t==="cry") d.s=Math.max(1,Math.min(10,Math.round(d.s*k*10)/10)); else if(d.t==="rect"){ d.l=Math.round(d.l*k*10)/10; d.w=Math.round(d.w*k*10)/10; } else if(d.t==="circ"||d.t==="stal") d.r=Math.max(1.5,Math.round(d.r*k*10)/10); else if(d.t==="lamp") d.r=Math.max(5,Math.round(d.r*k)); else if(d.t==="sq") d.s=Math.round(d.s*k*10)/10; else if(d.t==="dot") d.r=Math.round(d.r*k*10)/10; };
 document.getElementById("decoEditBtn").onclick=()=>{ ui.decoEdit=!ui.decoEdit; ui.decoSel=null; decoDrag=null;
   if (ui.decoEdit && ui.env){ ui.env=null; document.getElementById("envSel").value=""; }
   if (!ui.decoEdit){ document.getElementById("decoAdd").value=""; setStatus(""); }
@@ -2475,13 +2477,13 @@ function decoIndex(st){
   const D=decoOf(st), sig=D.length+"|"+D.reduce((a,d)=>a+(d.x||0)+(d.y||0)*3+(d.cv||0)*7+(d.l||d.r||d.s||0)+(d.rot||0),0).toFixed(1);
   if (decoIdxCache.arr===D && decoIdxCache.sig===sig) return decoIdxCache;
   const B=new Map(), C=40;
-  D.forEach(d=>{ const lv=decoCover(d); if(!lv) return; const R=d.t==="rect"?Math.hypot(d.l,d.w)/2:d.t==="circ"?d.r:(d.s||0)*0.6;
+  D.forEach(d=>{ const lv=decoCover(d); if(!lv) return; const R=d.t==="rect"?Math.hypot(d.l,d.w)/2:(d.t==="circ"||d.t==="stal")?d.r:(d.s||0)*0.6;
     const it={d,lv,R}; for (let gx=Math.floor((d.x-R)/C); gx<=Math.floor((d.x+R)/C); gx++) for (let gy=Math.floor((d.y-R)/C); gy<=Math.floor((d.y+R)/C); gy++){ const k=gx+","+gy; if(!B.has(k)) B.set(k,[]); B.get(k).push(it); } });
   decoIdxCache={arr:D,sig,B,C}; return decoIdxCache;
 }
 // does the segment a->b pass through feature d? (rects are tested in their own rotated frame)
 function segHitsDeco(d,a,b){
-  if (d.t!=="rect"){ const r=d.t==="circ"?d.r:(d.s||0)*0.6; return segDist(d.x,d.y,a,b)<r*0.9; }
+  if (d.t!=="rect"){ const r=(d.t==="circ"||d.t==="stal")?d.r:(d.s||0)*0.6; return segDist(d.x,d.y,a,b)<r*0.9; }
   const an=-(d.rot||0)*Math.PI/180, c=Math.cos(an), s=Math.sin(an), L=p=>{ const dx=p[0]-d.x, dy=p[1]-d.y; return [dx*c-dy*s, dx*s+dy*c]; };
   const p=L(a), q=L(b), hx=d.l/2*0.92, hy=d.w/2*0.92; let t0=0,t1=1; const dx=q[0]-p[0], dy=q[1]-p[1];
   for (const [P,Q] of [[-dx,p[0]+hx],[dx,hx-p[0]],[-dy,p[1]+hy],[dy,hy-p[1]]]){ if (P===0){ if(Q<0) return false; continue; } const r=Q/P; if (P<0){ if(r>t1) return false; if(r>t0) t0=r; } else { if(r<t0) return false; if(r<t1) t1=r; } }
@@ -2816,6 +2818,18 @@ function drawRockSpire(g,r,id,common){
     return out;
   };
 })();
+
+
+// ---- stalagmites: rock spires drawn from above, full cover ----
+function drawStal(g,X,Y,d){
+  let h=(d.seed||Math.round(d.x*7+d.y*13))>>>0; const rnd=()=>{ h=(Math.imul(h,1103515245)+12345)>>>0; return (h>>>8)/16777216; };
+  const R=d.r*U, ring=(k,n,j)=>{ let p=""; for (let i=0;i<n;i++){ const a=i/n*Math.PI*2+rnd()*0.35, q=k*(1-j/2+rnd()*j); p+=(i?"L":"M")+(X+Math.cos(a)*q).toFixed(1)+" "+(Y+Math.sin(a)*q).toFixed(1); } return p+"Z"; };
+  el("ellipse",{cx:X+R*0.18,cy:Y+R*0.22,rx:R*1.05,ry:R*0.95,fill:"#1A1714","fill-opacity":0.35},g);
+  el("path",{d:ring(R,10,0.3),fill:"#9A9184",stroke:"#2E2A25","stroke-width":1.1,"stroke-linejoin":"round"},g);
+  el("path",{d:ring(R*0.66,8,0.3),fill:"#B5AC9E",stroke:"#3A352F","stroke-width":0.6,"stroke-opacity":0.7,"stroke-linejoin":"round"},g);
+  el("path",{d:ring(R*0.34,6,0.35),fill:"#D2CABB"},g);
+  el("circle",{cx:X-R*0.06,cy:Y-R*0.08,r:Math.max(0.8,R*0.1),fill:"#F1ECE2"},g);
+}
 
 })();
 </script>
