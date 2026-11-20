@@ -677,7 +677,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20b";
+const APP_VER = "2026-11-20c";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -2874,10 +2874,39 @@ function drawFire(g,X,Y,d){
 
 // ---- emotes and markers: right-click your token for an emote, right-click the ground for a marker ----
 (function(){
+// cartoon emote icons, drawn in a 100x100 box (chunky outlines, flat bright colours)
+const EMO_O="#2B2522";
+function emoIcon(i){
+  const O=EMO_O, sw=7, face=(fill,inner)=>`<circle cx="50" cy="52" r="38" fill="${fill}" stroke="${O}" stroke-width="${sw}"/><path d="M26 38a30 30 0 0 1 22-18" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="6" stroke-linecap="round"/>${inner}`;
+  const arrow=a=>`<g transform="rotate(${a} 50 50)"><path d="M50 12 L82 46 L62 46 L62 86 L38 86 L38 46 L18 46 Z" fill="#4FA3F7" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/><path d="M50 22 L70 42" stroke="#fff" stroke-opacity=".5" stroke-width="5" stroke-linecap="round"/></g>`;
+  const thumb=(down)=>`<g transform="${down?"rotate(180 50 50)":""}"><path d="M30 46 L46 18 Q52 10 58 16 Q62 22 58 32 L56 42 L78 42 Q88 42 86 54 L80 78 Q78 86 70 86 L30 86 Z" fill="${down?"#F08A5D":"#FFC857"}" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/><rect x="12" y="44" width="18" height="44" rx="5" fill="${down?"#C8553D":"#E0A030"}" stroke="${O}" stroke-width="${sw}"/><path d="M58 54 L80 54 M58 66 L78 66" stroke="${O}" stroke-width="5" stroke-linecap="round"/></g>`;
+  switch(i){
+    case 0: return `<rect x="40" y="10" width="20" height="54" rx="10" fill="#FFD23F" stroke="${O}" stroke-width="${sw}"/><circle cx="50" cy="80" r="10" fill="#FFD23F" stroke="${O}" stroke-width="${sw}"/>`;
+    case 1: return thumb(false);
+    case 2: return thumb(true);
+    case 3: case 17: case 99: break;
+  }
+  if (i>=4 && i<=11) return arrow((i-4)*45);
+  switch(i){
+    case 3: return `<path d="M50 8 Q70 30 72 44 Q80 36 80 28 Q94 50 90 66 Q86 90 50 92 Q14 90 12 64 Q10 46 28 30 Q30 44 38 48 Q34 24 50 8 Z" fill="#FF7A2F" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/><path d="M50 44 Q64 58 64 70 Q64 84 50 84 Q36 84 36 70 Q36 60 44 54 Q46 62 50 62 Q48 52 50 44 Z" fill="#FFD23F"/>`;
+    case 12: return face("#FF6B57",`<path d="M28 40 L44 46 M72 40 L56 46" stroke="${O}" stroke-width="7" stroke-linecap="round"/><circle cx="38" cy="54" r="5" fill="${O}"/><circle cx="62" cy="54" r="5" fill="${O}"/><path d="M34 76 Q50 64 66 76" fill="none" stroke="${O}" stroke-width="7" stroke-linecap="round"/>`);
+    case 13: return face("#FFD23F",`<path d="M30 52 Q37 44 44 52 M56 52 Q63 44 70 52" fill="none" stroke="${O}" stroke-width="6" stroke-linecap="round"/><path d="M32 64 Q50 84 68 64" fill="none" stroke="${O}" stroke-width="7" stroke-linecap="round"/><circle cx="26" cy="64" r="5" fill="#FF8FA3" opacity=".8"/><circle cx="74" cy="64" r="5" fill="#FF8FA3" opacity=".8"/>`);
+    case 14: return face("#8EC5FF",`<path d="M30 44 L42 40 M70 44 L58 40" stroke="${O}" stroke-width="6" stroke-linecap="round"/><circle cx="38" cy="54" r="5" fill="${O}"/><circle cx="62" cy="54" r="5" fill="${O}"/><path d="M36 78 Q50 66 64 78" fill="none" stroke="${O}" stroke-width="7" stroke-linecap="round"/><path d="M64 60 Q70 70 64 76 Q58 70 64 60 Z" fill="#4FA3F7" stroke="${O}" stroke-width="3"/>`);
+    case 15: return face("#C6B6FF",`<circle cx="37" cy="48" r="9" fill="#fff" stroke="${O}" stroke-width="5"/><circle cx="63" cy="48" r="9" fill="#fff" stroke="${O}" stroke-width="5"/><circle cx="37" cy="49" r="3.5" fill="${O}"/><circle cx="63" cy="49" r="3.5" fill="${O}"/><ellipse cx="50" cy="73" rx="9" ry="11" fill="${O}"/>`);
+    case 16: return face("#FFD23F",`<path d="M28 46 L40 52 L28 56 M72 46 L60 52 L72 56" fill="none" stroke="${O}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 62 L70 62 Q68 86 50 86 Q32 86 30 62 Z" fill="#7A1F2B" stroke="${O}" stroke-width="6" stroke-linejoin="round"/><path d="M38 76 Q50 70 62 76" fill="none" stroke="#FF6B57" stroke-width="6" stroke-linecap="round"/><path d="M20 50 Q14 60 20 66" fill="none" stroke="#4FA3F7" stroke-width="5" stroke-linecap="round"/><path d="M80 50 Q86 60 80 66" fill="none" stroke="#4FA3F7" stroke-width="5" stroke-linecap="round"/>`);
+    case 17: return `<path d="M50 86 L16 50 Q4 36 14 22 Q28 8 44 20 L50 26 L56 20 Q72 8 86 22 Q96 36 84 50 Z" fill="#FF4F6D" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/><path d="M24 30 Q30 22 38 26" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="6" stroke-linecap="round"/>`;
+    case 18: return `<path d="M22 34 L34 22 L50 38 L66 22 L78 34 L62 50 L78 66 L66 78 L50 62 L34 78 L22 66 L38 50 Z" fill="#FF4F4F" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+    case 19: return `<path d="M14 52 L26 40 L42 56 L74 22 L86 34 L42 80 Z" fill="#5CD65C" stroke="${O}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+  }
+  return "";
+}
+
   const SYM=["!","👍","👎","🔥","↑","↗","→","↘","↓","↙","←","↖","😡","😊","😢","😱","😂","❤️","✖","✔"];
+  const NAMES=["Alert","Thumbs up","Thumbs down","Fire","Up","Up-right","Right","Down-right","Down","Down-left","Left","Up-left","Angry","Happy","Sad","Scared","Laughing","Heart","No","Yes"];
   const KIND=i=>i===0?"alert":i<=3?"say":i<=11?"arrow":i<=17?"feel":"mark";
   const COL={alert:{f:"#F7D774",s:"#8A6A0E",t:"#5A4306"},say:{f:"#F5C4B3",s:"#993C1D",t:"#712B13"},arrow:{f:"#B5D4F4",s:"#185FA5",t:"#0C447C"},feel:{f:"#CECBF6",s:"#534AB7",t:"#3C3489"},mark:{f:"#E7E3DA",s:"#4A453C",t:"#2A2620"}};
   const LIFE=5000, COOL=900;
+
   let fxMap={}, fxOk={}, lastSent=0, ticker=null, menu=null;
   const me=()=>{ try{ return localStorage.getItem("mines-me")||""; }catch(e){ return ""; } };
   const setMe=id=>{ try{ localStorage.setItem("mines-me",id); }catch(e){} };
@@ -2886,31 +2915,39 @@ function drawFire(g,X,Y,d){
   const now=()=>(typeof nowServer==="function"?nowServer():Date.now());
   const st=document.createElement("style");
   st.textContent=`#emoMenu{position:fixed;z-index:60;background:var(--panel,#fff);border:1px solid var(--line,#ccc);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.28);display:grid;grid-template-columns:repeat(5,34px);gap:5px;font-family:inherit}
-#emoMenu button{width:34px;height:34px;border-radius:50%;border:2px solid;padding:0;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
-#emoMenu .wide{grid-column:span 5;width:auto;border-radius:8px;height:30px;font-size:13px;border:1px solid var(--line,#ccc);background:var(--panel2,#f3f1ec);color:var(--ink,#222)}
+#emoMenu button{width:34px;height:34px;border-radius:50%;border:3px solid;box-shadow:0 2px 0 rgba(0,0,0,.25);transition:transform .08s;padding:0;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#emoMenu button:not(.wide):hover{transform:scale(1.15)}
+#emoMenu .wide{box-shadow:none;grid-column:span 5;width:auto;border-radius:8px;height:30px;font-size:13px;border:1px solid var(--line,#ccc);background:var(--panel2,#f3f1ec);color:var(--ink,#222)}
 #emoMenu .wide.on{background:var(--accent,#4B3F8E);color:var(--accent-ink,#fff);border-color:var(--accent,#4B3F8E)}
 #emoMenu .hd{grid-column:span 5;font-size:12px;opacity:.75;padding:0 2px}
 #emoPanel{position:absolute;z-index:55;background:var(--panel,#fff);border:1px solid var(--line,#ccc);border-radius:10px;padding:8px 10px;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:14px;min-width:190px}
 #emoPanel label{display:flex;gap:6px;align-items:center;padding:2px 0}`;
   document.head.appendChild(st);
   // ---- drawing (token-style discs) ----
-  function disc(g,x,y,r,i,op){
-    const c=COL[KIND(i)], G=el("g",{transform:`translate(${x},${y})`,opacity:op,"pointer-events":"none"},g);
-    el("circle",{r:r,fill:c.f,stroke:c.s,"stroke-width":r*0.13},G);
-    const tx=el("text",{y:r*0.06,"text-anchor":"middle","dominant-baseline":"central","font-family":FONT,"font-size":r*(KIND(i)==="arrow"||i>=18||i===0?1.25:1.05),"font-weight":800,fill:c.t},G); tx.textContent=SYM[i];
+  // cute cartoon bubbles: chunky dark outline, white bubble, bright flat icon
+  function disc(g,x,y,r,i,op,tail,sc){
+    const c=COL[KIND(i)], G=el("g",{transform:`translate(${x},${y}) scale(${sc||1})`,opacity:op,"pointer-events":"none"},g), w=r*0.16;
+    el("ellipse",{cx:r*0.12,cy:r*1.02,rx:r*0.8,ry:r*0.22,fill:"#000","fill-opacity":0.25},G);
+    if (tail) el("path",{d:`M${-r*0.32} ${r*0.7} L0 ${r*1.35} L${r*0.32} ${r*0.7} Z`,fill:"#fff",stroke:EMO_O,"stroke-width":w,"stroke-linejoin":"round"},G);
+    el("circle",{r:r,fill:tail?"#fff":c.f,stroke:EMO_O,"stroke-width":w},G);
+    if (!tail) el("circle",{r:r*0.78,fill:"#fff"},G);
+    if (tail) el("path",{d:`M${-r*0.32} ${r*0.62} L0 ${r*1.05} L${r*0.32} ${r*0.62} Z`,fill:"#fff"},G);
+    const ic=el("g",{transform:`translate(${-r*0.62},${-r*0.62}) scale(${r*1.24/100})`},G); ic.innerHTML=emoIcon(i);
+    el("path",{d:`M${-r*0.62} ${-r*0.35} A${r*0.72} ${r*0.72} 0 0 1 ${-r*0.2} ${-r*0.72}`,fill:"none",stroke:"#fff","stroke-opacity":0.7,"stroke-width":w*0.8,"stroke-linecap":"round"},G);
     return G;
   }
   function drawFx(){
     const old=svg.querySelector("#fxLayer"); if (old) old.remove();
     const g=el("g",{id:"fxLayer"},svg), t0=now(); let live=0;
     // pinned markers (map features)
-    (decoOf(S)||[]).forEach(d=>{ if (d.t!=="emo") return; const G=disc(g,fx(d.x),fy(d.y),2.6*U,d.s,1);
-      if (d.by){ const R=2.6*U, lb=el("text",{y:R*1.75,"text-anchor":"middle","font-family":FONT,"font-size":R*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":R*0.14,"paint-order":"stroke"},G); lb.textContent=d.by; } });
+    (decoOf(S)||[]).forEach(d=>{ if (d.t!=="emo") return; const G=disc(g,fx(d.x),fy(d.y),3.6*U,d.s,1);
+      if (d.by){ const R=3.6*U, lb=el("text",{y:R*1.75,"text-anchor":"middle","font-family":FONT,"font-size":R*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":R*0.14,"paint-order":"stroke"},G); lb.textContent=d.by; } });
     for (const id in fxMap){ const f=fxMap[id], age=t0-(f.at||0); if (age<0||age>LIFE) continue; live++;
       const op=age>LIFE-1200?Math.max(0,(LIFE-age)/1200):1, rise=Math.min(1,age/400);
-      let x=f.x, y=f.y, r=2.4*U;
-      if (f.on){ const t=(S.tokens||[]).find(t=>t.id===f.tok); if (!t || (!isDM() && (t.kind==='cart'||t.kind==='felt'))) continue; const tr=sizeOf(t)/2; x=t.x; y=t.y-tr-3-rise*2; r=Math.max(2.2,Math.min(4,tr*0.8))*U; }
-      const G=disc(g,fx(x),fy(y),r*(0.6+0.4*rise),f.s,op);
+      let x=f.x, y=f.y, r=3.6*U;
+      const pop=age<160?0.4+age/160*0.75:age<300?1.15-(age-160)/140*0.15:1;   // bounce in
+      if (f.on){ const t=(S.tokens||[]).find(t=>t.id===f.tok); if (!t || (!isDM() && (t.kind==='cart'||t.kind==='felt'))) continue; const tr=sizeOf(t)/2; r=Math.max(3.4,Math.min(5.5,tr*1.1))*U; x=t.x; y=t.y-tr-r/U*1.45-rise*1.5; }
+      const G=disc(g,fx(x),fy(y),r,f.s,op,!!f.on,pop);
       if (!f.on && f.name){ const lb=el("text",{y:r*1.75,"text-anchor":"middle","font-family":FONT,"font-size":r*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":r*0.14,"paint-order":"stroke"},G); lb.textContent=f.name; } }
     if (live && !ticker) ticker=setInterval(()=>{ drawFx(); },150);
     if (!live && ticker){ clearInterval(ticker); ticker=null; }
@@ -2962,7 +2999,7 @@ function drawFire(g,X,Y,d){
     closeMenu(); let pin=false;
     menu=document.createElement("div"); menu.id="emoMenu";
     const head=document.createElement("div"); head.className="hd"; head.textContent=o.on?("Emote: "+tokName(o.src)):("Marker"+(o.src?" from "+tokName(o.src):"")); menu.appendChild(head);
-    SYM.forEach((s,i)=>{ const c=COL[KIND(i)], b=document.createElement("button"); b.textContent=s; b.title=s; b.style.background=c.f; b.style.borderColor=c.s; b.style.color=c.t;
+    SYM.forEach((s,i)=>{ const c=COL[KIND(i)], b=document.createElement("button"); b.innerHTML=`<svg viewBox="0 0 100 100" width="26" height="26">${emoIcon(i)}</svg>`; b.title=NAMES[i]; b.style.background="#fff"; b.style.borderColor=EMO_O;
       b.onclick=()=>{ closeMenu(); send(o.src,i,o.x,o.y,o.on,pin&&!o.on); }; menu.appendChild(b); });
     if (!o.on){ const p=document.createElement("button"); p.className="wide"; p.textContent="📌 Keep it on the map (pin)"; p.onclick=()=>{ pin=!pin; p.classList.toggle("on",pin); p.textContent=pin?"📌 Will pin: pick a symbol":"📌 Keep it on the map (pin)"; }; menu.appendChild(p); }
     if (o.path){ const p=document.createElement("button"); p.className="wide"; p.textContent="📏 Plan a path from here"; p.onclick=()=>{ closeMenu(); o.path(); }; menu.appendChild(p); }
@@ -2982,7 +3019,7 @@ function drawFire(g,X,Y,d){
     if (!tg) for (const n of document.elementsFromPoint(e.clientX,e.clientY)){ const k=n.closest&&n.closest(".tok"); if (k){ tg=k; break; } }
     const t=tg&&tok(tg.dataset.id), p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U;
     // a pinned marker under the cursor
-    const pinD=(decoOf(S)||[]).find(d=>d.t==="emo"&&Math.hypot(d.x-x,d.y-y)<=3);
+    const pinD=(decoOf(S)||[]).find(d=>d.t==="emo"&&Math.hypot(d.x-x,d.y-y)<=4);
     if (isDM()){
       if (t && t.kind!=="party" && S.battle) return;            // monsters in battle: movement path as before
       e.preventDefault(); e.stopImmediatePropagation();
