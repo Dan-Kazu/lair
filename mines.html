@@ -486,6 +486,8 @@ function publicView(st){
     legend: ((st.setup&&st.setup.legend)||[]).filter(x=>!x[1]).map(x=>x[0]),
     tokens: st.tokens.filter(t=>!t.hidden&&canSeeX(t)).map(t=> felt.has(t.id)
       ? {id:t.id,label:"",name:"Something you sense",kind:"felt",felt:true,x:t.x,y:t.y,size:sizeOf(t),shape:null,dead:false,dash:false}
+      : t.disguise==="rock"
+      ? {id:t.id,label:"",name:(st.setup&&st.setup.rockAs)||"Stalactite",kind:"cart",rock:true,x:t.x,y:t.y,size:sizeOf(t),shape:"rock",dead:false,dash:false}
       : t.disguise
       ? {id:t.id,label:"",name:(st.setup&&st.setup.disguiseAs)||"Object",kind:"cart",x:t.x,y:t.y,size:sizeOf(t),shape:"square",dead:false,dash:false}
       : {id:t.id,label:t.label,name:t.kind==="party"?t.name:t.label,kind:t.kind,x:t.x,y:t.y,size:sizeOf(t),shape:t.shape||null,len:t.len||null,wid:t.wid||null,rot:t.rot||0,dead:!!t.dead,dash:!!t.dash,movable:!!t.playerMove&&onTurn(st,t), invis:!!t.invisible, noTerrain:!!t.noTerrain, ...pubExtra(st,t), left:st.battle&&t.playerMove&&onTurn(st,t)?moveLeft(t):null}),
@@ -674,7 +676,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-19a";
+const APP_VER = "2026-11-19c";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -1121,7 +1123,7 @@ function renderBoard(){
   });
   S.tokens.forEach(t=>{
     if (MODE!=="dm" && t.kind!=="party" && !t.movable && !t.felt && !paintVisibleAt(t.x,t.y) && !tokenInRevealed(t) && !inSight(t.x,t.y)) return;
-    const ramp = t.kind==="cart"?RAMP.cart:t.kind==="party"?RAMP.teal:t.kind==="core"?RAMP.purple:t.kind==="other"?RAMP.blue:RAMP.coral;
+    const ramp = t.rock?ROCK_RAMP:t.kind==="cart"?RAMP.cart:t.kind==="party"?RAMP.teal:t.kind==="core"?RAMP.purple:t.kind==="other"?RAMP.blue:RAMP.coral;
     // tokens are drawn at 1 unit per foot inside a group scaled to the map, so rings and badges keep their proportions
     const r=sizeOf(t)/2, ring=Math.max(1.5,r*0.3), gp=groupOf(t.id);
     const G=el("g",{class:"tok"+(t.movable||t.playerMove?" mvbl":""),"data-id":t.id,transform:`translate(${fx(t.x)},${fy(t.y)})`,style:"cursor:grab"},svg);
@@ -1134,7 +1136,8 @@ function renderBoard(){
     if (t.dash) common["stroke-dasharray"]=`${Math.max(1,r*0.35)} ${Math.max(0.8,r*0.25)}`;
     if (t.felt){ common.fill="#B9A6E8"; common["fill-opacity"]=0.18; common.stroke="#7B62C9"; common["stroke-dasharray"]=`${Math.max(1,r*0.3)} ${Math.max(0.8,r*0.25)}`; common.opacity=0.9; }
     const rot=t.rot?{transform:`rotate(${t.rot})`}:{};
-    if (t.shape==="square") el("rect",Object.assign({x:-r,y:-r,width:r*2,height:r*2,rx:r*0.25},common,rot),g);
+    if (t.shape==="rock") drawRockSpire(g,r,t.id,common);
+    else if (t.shape==="square") el("rect",Object.assign({x:-r,y:-r,width:r*2,height:r*2,rx:r*0.25},common,rot),g);
     else if (t.shape==="rect"){ const hl=t.len?t.len/2:r, hw=t.wid?t.wid/2:r*0.55; el("rect",Object.assign({x:-hl,y:-hw,width:hl*2,height:hw*2,rx:Math.min(hl,hw)*0.25},common,rot),g); }
     else if (t.shape==="tri"){ const sd=sizeOf(t), R=sd/Math.sqrt(3); el("path",Object.assign({d:`M0 ${-R}L${sd/2} ${R/2}L${-sd/2} ${R/2}Z`,"stroke-linejoin":"round"},common,rot),g); }
     else el("circle",Object.assign({r},common),g);
@@ -1145,9 +1148,10 @@ function renderBoard(){
     if (t.playerMove||t.movable) el("circle",{r:r+Math.max(2,r*0.45),fill:"none",stroke:"#1D9E75","stroke-width":Math.max(0.8,r*0.12),"stroke-dasharray":"2 2"},g);
     if (MODE==="dm" && t.vision) el("circle",{cx:-r*0.75,cy:-r*0.75,r:Math.max(1.3,r*0.28),fill:"#F2C94C",stroke:"#5C4A12","stroke-width":0.4},g);
     if (MODE==="dm" && t.corrupt) el("circle",{r:r+Math.max(1.2,r*0.22),fill:"none",stroke:"#3A0F0F","stroke-width":Math.max(1.1,r*0.2)},g);
-    if (MODE==="dm" && t.disguise) el("rect",{x:-r-1.5,y:-r-1.5,width:r*2+3,height:r*2+3,rx:r*0.3,fill:"none",stroke:RAMP.cart.s,"stroke-width":0.8,"stroke-dasharray":"1.5 1.5"},g);
+    if (MODE==="dm" && t.disguise==="rock") el("circle",{r:r+1.5,fill:"none",stroke:ROCK_RAMP.s,"stroke-width":0.9,"stroke-dasharray":"1.5 1.5"},g);
+    else if (MODE==="dm" && t.disguise) el("rect",{x:-r-1.5,y:-r-1.5,width:r*2+3,height:r*2+3,rx:r*0.3,fill:"none",stroke:RAMP.cart.s,"stroke-width":0.8,"stroke-dasharray":"1.5 1.5"},g);
     tokFx(t,g,r);
-    const tt=el("title",{},g); tt.textContent=(MODE!=="dm"?t.name:t.name+(t.hidden?" (hidden from players)":"")+(t.disguise?" (disguised)":"")+(t.invisible?" (invisible)":"")+(t.corrupt?" (marked)":""))+(t.max?` (${t.hp}/${t.max} HP)`:"")+(gp?` · ${gp.name}`:"");
+    const tt=el("title",{},g); tt.textContent=(MODE!=="dm"?t.name:t.name+(t.hidden?" (hidden from players)":"")+(t.disguise==="rock"?" (disguised as "+((S.setup&&S.setup.rockAs)||"a stalactite").toLowerCase().replace(/^(?!a )/,"a ")+")":t.disguise?" (disguised)":"")+(t.invisible?" (invisible)":"")+(t.corrupt?" (marked)":""))+(t.max?` (${t.hp}/${t.max} HP)`:"")+(gp?` · ${gp.name}`:"");
   });
   drawTemplates(); paintLive();
 }
@@ -1338,7 +1342,8 @@ function renderSel(){
       <button class="small" id="sPM">${t.playerMove?"Lock from players":"Let players move this"}</button>
       <button class="small" id="sCorr">${t.corrupt?"Remove dark ring":"Add dark ring"}</button>
       <button class="small" id="sHide">${t.hidden?"Show to players":"Hide from players"}</button>
-      <button class="small" id="sDisg">${t.disguise?"Remove disguise":"Disguise"}</button>
+      <button class="small" id="sDisg">${t.disguise&&t.disguise!=="rock"?"Remove disguise":"Disguise"}</button>
+      <button class="small" id="sRock" title="Players see a rock spire. Moving it drops the disguise.">${t.disguise==="rock"?"Remove "+((S.setup&&S.setup.rockAs)||"stalactite").toLowerCase()+" disguise":"Disguise as "+((S.setup&&S.setup.rockAs)||"stalactite").toLowerCase()}</button>
       <button class="small" id="sInit">${gp?"Add its group to initiative":"Add to initiative"}</button>
       <button class="small" id="sPreset">Save as preset</button>
       <button class="small" id="sCopy">Copy</button><button class="small" id="sDup">Duplicate</button><button class="small" id="sDel" style="color:var(--danger)">Remove</button>
@@ -1382,7 +1387,8 @@ function renderSel(){
   $("sVis").onclick=()=>{ t.vision=!t.vision; commit(); renderAll(); };
   $("sCorr").onclick=()=>{ t.corrupt=!t.corrupt; commit(); renderAll(); };
   $("sHide").onclick=()=>{ t.hidden=!t.hidden; commit(); renderAll(); };
-  $("sDisg").onclick=()=>{ t.disguise=!t.disguise; commit(); renderAll(); };
+  $("sDisg").onclick=()=>{ t.disguise=(t.disguise&&t.disguise!=="rock")?false:true; delete t.rockAt; commit(); renderAll(); };
+  $("sRock").onclick=()=>{ if (t.disguise==="rock"){ t.disguise=false; delete t.rockAt; } else { t.disguise="rock"; t.rockAt=[t.x,t.y]; } commit(); renderAll(); };
   $("sInit").onclick=()=>{ if(gp){ if(!S.init.some(e=>e.ref===gp.id)) S.init.push({id:uid(),kind:"group",ref:gp.id,name:gp.name,roll:""}); }
     else if(!S.init.some(e=>e.ref===t.id)) S.init.push({id:uid(),kind:t.kind==="party"?"pc":"token",ref:t.id,name:t.name,roll:""}); commit(); renderInit(); };
   $("sCopy").onclick=()=>copyTokens([t.id]); $("sDup").onclick=()=>{ copyTokens([t.id]); pasteTokens(); };
@@ -2785,6 +2791,30 @@ try { measUI(); } catch(e){}
     e.preventDefault(); card.scrollIntoView({block:"nearest"}); q.focus(); q.select();
   });
   const _ra=renderAll; renderAll=function(){ _ra.apply(this,arguments); if(q.value.trim()) search(); };
+})();
+
+
+// ---- stalactite disguise: players see a rock spire; it drops when the token moves ----
+const ROCK_RAMP={f:"#A9A49A",s:"#4E4A44",t:"#2C2A27"};
+function drawRockSpire(g,r,id,common){
+  let h=0; for (const ch of String(id)) h=(h*31+ch.charCodeAt(0))>>>0; const rnd=()=>{ h=(h*1103515245+12345)>>>0; return (h>>>8)/16777216; };
+  const ring=(R,n,j)=>{ let d=""; for (let i=0;i<n;i++){ const a=i/n*Math.PI*2+rnd()*0.3, k=R*(1-j/2+rnd()*j); d+=(i?"L":"M")+(Math.cos(a)*k).toFixed(2)+" "+(Math.sin(a)*k).toFixed(2); } return d+"Z"; };
+  el("path",Object.assign({},common,{d:ring(r,11,0.28),fill:ROCK_RAMP.f,stroke:ROCK_RAMP.s,"stroke-linejoin":"round"}),g);
+  el("path",{d:ring(r*0.62,8,0.3),fill:"#C4BFB4",stroke:ROCK_RAMP.s,"stroke-width":Math.max(0.3,r*0.05),"stroke-opacity":0.6,"stroke-linejoin":"round",opacity:common.opacity},g);
+  el("path",{d:ring(r*0.28,6,0.3),fill:"#E2DDD2",stroke:"none",opacity:common.opacity},g);
+  el("circle",{cx:-r*0.08,cy:-r*0.1,r:Math.max(0.5,r*0.09),fill:"#F4F1EA",opacity:common.opacity},g);
+}
+(function(){
+  const _c=commit;
+  commit=function(){
+    let moved=[];
+    (S.tokens||[]).forEach(t=>{ if (t.disguise!=="rock") return;
+      if (!t.rockAt){ t.rockAt=[t.x,t.y]; return; }
+      if (Math.hypot(t.x-t.rockAt[0],t.y-t.rockAt[1])>0.5){ t.disguise=false; delete t.rockAt; moved.push(t.name||"A token"); } });
+    const out=_c.apply(this,arguments);
+    if (moved.length){ try{ setStatus(moved.join(", ")+(moved.length>1?" moved and dropped their disguises":" moved and dropped its disguise")); }catch(e){} }
+    return out;
+  };
 })();
 
 })();
