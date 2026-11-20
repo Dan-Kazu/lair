@@ -677,7 +677,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20c";
+const APP_VER = "2026-11-20d";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -2936,17 +2936,33 @@ function emoIcon(i){
     el("path",{d:`M${-r*0.62} ${-r*0.35} A${r*0.72} ${r*0.72} 0 0 1 ${-r*0.2} ${-r*0.72}`,fill:"none",stroke:"#fff","stroke-opacity":0.7,"stroke-width":w*0.8,"stroke-linecap":"round"},G);
     return G;
   }
+  const TXT=30, FONTF=i=>((window.__FONTS||[])[i]||["","Helvetica, Arial, sans-serif"])[1];
+  const lifeOf=f=>f.s===TXT?Math.min(11000,4000+String(f.txt||"").length*90):LIFE;
+  function wrap(txt,n){ const w=String(txt).split(/\s+/), L=[]; let c=""; w.forEach(x=>{ if ((c+" "+x).trim().length>n && c){ L.push(c); c=x; } else c=(c+" "+x).trim(); }); if (c) L.push(c); return L.slice(0,4); }
+  function textBubble(g,x,y,txt,font,op,tail,sc,by){
+    const fs=2.3*U*2, lines=wrap(txt,22), w=Math.max(...lines.map(l=>l.length),4)*fs*0.56+fs*1.4, h=lines.length*fs*1.2+fs*0.9;
+    const G=el("g",{transform:`translate(${x},${y}) scale(${sc||1})`,opacity:op,"pointer-events":"none"},g), sw=fs*0.16, top=tail?-h-fs*0.9:-h/2;
+    el("rect",{x:-w/2+fs*0.15,y:top+fs*0.2,width:w,height:h,rx:fs*0.7,fill:"#000","fill-opacity":0.22},G);
+    if (tail) el("path",{d:`M${-fs*0.45} ${top+h-sw} L0 ${top+h+fs*0.8} L${fs*0.45} ${top+h-sw} Z`,fill:"#fff",stroke:EMO_O,"stroke-width":sw,"stroke-linejoin":"round"},G);
+    el("rect",{x:-w/2,y:top,width:w,height:h,rx:fs*0.7,fill:"#fff",stroke:EMO_O,"stroke-width":sw},G);
+    if (tail) el("path",{d:`M${-fs*0.45} ${top+h-sw*1.5} L0 ${top+h+fs*0.5} L${fs*0.45} ${top+h-sw*1.5} Z`,fill:"#fff"},G);
+    const t=el("text",{x:0,y:top+fs*0.45+fs*0.95,"text-anchor":"middle","font-family":FONTF(font),"font-size":fs,"font-weight":700,fill:EMO_O},G);
+    lines.forEach((l,i)=>{ const sp=el("tspan",{x:0,dy:i?fs*1.2:0},t); sp.textContent=l; });
+    if (by){ const lb=el("text",{y:top+h+fs*1.1,"text-anchor":"middle","font-family":FONT,"font-size":fs*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":fs*0.14,"paint-order":"stroke"},G); lb.textContent=by; }
+    return G;
+  }
   function drawFx(){
     const old=svg.querySelector("#fxLayer"); if (old) old.remove();
     const g=el("g",{id:"fxLayer"},svg), t0=now(); let live=0;
     // pinned markers (map features)
-    (decoOf(S)||[]).forEach(d=>{ if (d.t!=="emo") return; const G=disc(g,fx(d.x),fy(d.y),3.6*U,d.s,1);
+    (decoOf(S)||[]).forEach(d=>{ if (d.t!=="emo") return; if (d.s===TXT){ textBubble(g,fx(d.x),fy(d.y),d.txt||"",d.f||0,1,false,1,d.by); return; } const G=disc(g,fx(d.x),fy(d.y),3.6*U,d.s,1);
       if (d.by){ const R=3.6*U, lb=el("text",{y:R*1.75,"text-anchor":"middle","font-family":FONT,"font-size":R*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":R*0.14,"paint-order":"stroke"},G); lb.textContent=d.by; } });
-    for (const id in fxMap){ const f=fxMap[id], age=t0-(f.at||0); if (age<0||age>LIFE) continue; live++;
-      const op=age>LIFE-1200?Math.max(0,(LIFE-age)/1200):1, rise=Math.min(1,age/400);
+    for (const id in fxMap){ const f=fxMap[id], age=t0-(f.at||0), LF=lifeOf(f); if (age<0||age>LF) continue; live++;
+      const op=age>LF-1200?Math.max(0,(LF-age)/1200):1, rise=Math.min(1,age/400);
       let x=f.x, y=f.y, r=3.6*U;
       const pop=age<160?0.4+age/160*0.75:age<300?1.15-(age-160)/140*0.15:1;   // bounce in
       if (f.on){ const t=(S.tokens||[]).find(t=>t.id===f.tok); if (!t || (!isDM() && (t.kind==='cart'||t.kind==='felt'))) continue; const tr=sizeOf(t)/2; r=Math.max(3.4,Math.min(5.5,tr*1.1))*U; x=t.x; y=t.y-tr-r/U*1.45-rise*1.5; }
+      if (f.s===TXT){ textBubble(g,fx(x),fy(f.on?y+r/U*0.9:y),f.txt||"",f.f||0,op,!!f.on,pop,f.on?"":f.name); continue; }
       const G=disc(g,fx(x),fy(y),r,f.s,op,!!f.on,pop);
       if (!f.on && f.name){ const lb=el("text",{y:r*1.75,"text-anchor":"middle","font-family":FONT,"font-size":r*0.7,"font-weight":700,fill:"#fff",stroke:"#000","stroke-width":r*0.14,"paint-order":"stroke"},G); lb.textContent=f.name; } }
     if (live && !ticker) ticker=setInterval(()=>{ drawFx(); },150);
@@ -2955,19 +2971,22 @@ function emoIcon(i){
   const _rb=renderBoard; renderBoard=function(){ _rb.apply(this,arguments); try{ drawFx(); }catch(e){} };
   // ---- sending ----
   function tokName(id){ const t=id&&tok(id); return id==="dm"?"DM":(t?(t.name||t.label):""); }
-  function send(src,s,x,y,on,pin){
+  const fontOf=src=>{ const t=src&&tok(src); return t&&t.font!=null?t.font:0; };
+  function send(src,s,x,y,on,pin,txt){
     if (!isDM() && Date.now()-lastSent<COOL) return; lastSent=Date.now();
     const rec={s,x:Math.round(x*10)/10,y:Math.round(y*10)/10,on:on?1:0,at:now(),tok:src,name:tokName(src)};
-    if (pin){ addPin(src,s,rec.x,rec.y); }
+    if (s===TXT){ rec.txt=String(txt||"").slice(0,80); rec.f=fontOf(src); }
+    if (pin){ addPin(src,s,rec.x,rec.y,rec.txt,rec.f); }
     if (!fbRoot){ fxMap[src]=rec; drawFx(); return; }
-    const up={s:rec.s,x:rec.x,y:rec.y,on:rec.on,at:firebase.database.ServerValue.TIMESTAMP};
+    const up={s:rec.s,x:rec.x,y:rec.y,on:rec.on,at:firebase.database.ServerValue.TIMESTAMP}; if (s===TXT){ up.txt=rec.txt; up.f=rec.f; }
     fbRoot.child("fx/"+src).set(up).catch(e=>setStatus(/permission/i.test(String(e&&e.message||e))?"Emotes are switched off for you":"Couldn't send that emote"));
     fxMap[src]=rec; drawFx();
   }
-  function addPin(src,s,x,y){
-    if (isDM()){ decoList().push({t:"emo",s,x,y,by:tokName(src),area:decoAreaAt(x,y),id:"e"+uid()}); commit(); renderBoard(); return; }
+  function addPin(src,s,x,y,txt,f){
+    const extra=s===TXT?{txt:String(txt||"").slice(0,80),f:f||0}:{};
+    if (isDM()){ decoList().push(Object.assign({t:"emo",s,x,y,by:tokName(src),area:decoAreaAt(x,y),id:"e"+uid()},extra)); commit(); renderBoard(); return; }
     if (!fbRoot) return;
-    fbRoot.child("fxReq/"+src).push({k:"pin",s,x,y,at:firebase.database.ServerValue.TIMESTAMP}).then(()=>setStatus("Marker pinned")).catch(()=>setStatus("Couldn't pin that marker"));
+    fbRoot.child("fxReq/"+src).push(Object.assign({k:"pin",s,x,y,at:firebase.database.ServerValue.TIMESTAMP},extra)).then(()=>setStatus("Marker pinned")).catch(()=>setStatus("Couldn't pin that marker"));
   }
   function removePin(src,d){
     if (isDM()){ const L=decoList(), i=L.indexOf(d); if (i>=0){ L.splice(i,1); commit(); renderBoard(); } return; }
@@ -2979,7 +2998,7 @@ function emoIcon(i){
     if (!fbRoot || watchReq.on) return; watchReq.on=true;
     fbRoot.child("fxReq").on("value",sn=>{ if (!isDM() || !amLeader) return; const v=sn.val(); if (!v) return; let changed=false; const L=decoList(), clear={};
       for (const src in v) for (const k in v[src]){ const r=v[src][k]; clear[src+"/"+k]=null;
-        if (r.k==="pin" && SYM[r.s]!=null){ L.push({t:"emo",s:r.s,x:r.x,y:r.y,by:tokName(src),area:decoAreaAt(r.x,r.y),id:"e"+uid()}); changed=true; }
+        if (r.k==="pin" && (SYM[r.s]!=null || r.s===TXT)){ const d={t:"emo",s:r.s,x:r.x,y:r.y,by:tokName(src),area:decoAreaAt(r.x,r.y),id:"e"+uid()}; if (r.s===TXT){ d.txt=String(r.txt||"").slice(0,80); d.f=Number.isInteger(r.f)?r.f:0; } L.push(d); changed=true; }
         else if (r.k==="rm"){ const i=L.findIndex(d=>d.t==="emo"&&((r.id&&d.id===r.id)||(!r.id&&Math.hypot(d.x-r.x,d.y-r.y)<0.5&&d.s===r.s))); if (i>=0){ L.splice(i,1); changed=true; } } }
       if (changed){ commit(); renderBoard(); }
       fbRoot.child("fxReq").update(clear).catch(()=>{}); },()=>{});
@@ -3003,6 +3022,13 @@ function emoIcon(i){
       b.onclick=()=>{ closeMenu(); send(o.src,i,o.x,o.y,o.on,pin&&!o.on); }; menu.appendChild(b); });
     if (!o.on){ const p=document.createElement("button"); p.className="wide"; p.textContent="📌 Keep it on the map (pin)"; p.onclick=()=>{ pin=!pin; p.classList.toggle("on",pin); p.textContent=pin?"📌 Will pin: pick a symbol":"📌 Keep it on the map (pin)"; }; menu.appendChild(p); }
     if (o.path){ const p=document.createElement("button"); p.className="wide"; p.textContent="📏 Plan a path from here"; p.onclick=()=>{ closeMenu(); o.path(); }; menu.appendChild(p); }
+    { const q=document.createElement("button"); q.className="wide"; q.textContent=o.on?"💬 Say something":"💬 Write a note here"; menu.appendChild(q);
+      q.onclick=()=>{ const box=document.createElement("div"); box.style.cssText="grid-column:span 5;display:flex;flex-direction:column;gap:6px";
+        box.innerHTML=`<input type="text" maxlength="80" placeholder="${o.on?"What do you say?":"Write a note"}" style="width:100%;box-sizing:border-box;font-family:${FONTF(fontOf(o.src))}">
+          <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" ${pin?"checked":""}> ${o.on?"Also leave it on the ground here":"Keep it on the map (pin)"}</label>
+          <button class="wide" style="grid-column:auto">Send</button>`;
+        q.replaceWith(box); const inp=box.querySelector("input[type=text]"), chk=box.querySelector("input[type=checkbox]"), go=()=>{ const v=inp.value.trim(); if(!v) return; closeMenu(); send(o.src,TXT,o.x,o.y,o.on,chk.checked,v); };
+        box.querySelector("button").onclick=go; inp.onkeydown=e=>{ e.stopPropagation(); if (e.key==="Enter") go(); if (e.key==="Escape") closeMenu(); }; inp.focus(); }; }
     document.body.appendChild(menu);
     const r=menu.getBoundingClientRect(); menu.style.left=Math.max(6,Math.min(innerWidth-r.width-6,cx+6))+"px"; menu.style.top=Math.max(6,Math.min(innerHeight-r.height-6,cy+6))+"px";
   }
@@ -3019,7 +3045,7 @@ function emoIcon(i){
     if (!tg) for (const n of document.elementsFromPoint(e.clientX,e.clientY)){ const k=n.closest&&n.closest(".tok"); if (k){ tg=k; break; } }
     const t=tg&&tok(tg.dataset.id), p=svgPoint(e), x=(p.x-OX)/U, y=(p.y-OY)/U;
     // a pinned marker under the cursor
-    const pinD=(decoOf(S)||[]).find(d=>d.t==="emo"&&Math.hypot(d.x-x,d.y-y)<=4);
+    const pinD=(decoOf(S)||[]).find(d=>d.t==="emo"&&(d.s===TXT?Math.abs(d.x-x)<=Math.max(6,String(d.txt||"").length*0.7)&&Math.abs(d.y-y)<=4:Math.hypot(d.x-x,d.y-y)<=4));
     if (isDM()){
       if (t && t.kind!=="party" && S.battle) return;            // monsters in battle: movement path as before
       e.preventDefault(); e.stopImmediatePropagation();
@@ -3057,6 +3083,86 @@ function emoIcon(i){
       const off=e2=>{ if (!P.contains(e2.target) && e2.target!==b){ P.remove(); document.removeEventListener("pointerdown",off,true); } }; document.addEventListener("pointerdown",off,true); };
   }
   try{ renderBoard(); }catch(e){}
+})();
+
+// ---- player movement extras, hover, tremorsense, speech bubbles and personal style ----
+(function(){
+  const FONTS=[["Helvetica","Helvetica, Arial, sans-serif"],["Roboto","'Roboto', Arial, sans-serif"],["Comic Sans","'Comic Sans MS','Comic Neue',cursive"],["Montserrat","'Montserrat', Arial, sans-serif"],["Inter","'Inter', Arial, sans-serif"],["Times New Roman","'Times New Roman', Times, serif"],["Impact","Impact, 'Arial Black', sans-serif"]];
+  const COLS=[["Teal","#9FE1CB","#0F6E56","#085041"],["Sky","#B5D4F4","#185FA5","#0C447C"],["Violet","#CECBF6","#534AB7","#3C3489"],["Rose","#F6C3D6","#A3245A","#6E1239"],["Sun","#FBE29A","#9A7110","#5E4508"],["Ember","#F9C7A8","#B4501D","#6E2C0B"],["Moss","#CDE6A8","#4E7A1E","#2F4A10"],["Slate","#D9D6CF","#55524B","#2E2C28"]];
+  { const l=document.createElement("link"); l.rel="stylesheet"; l.href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=Montserrat:wght@600;700&family=Roboto:wght@500;700&display=swap"; document.head.appendChild(l); }
+  window.__FONTS=FONTS;
+  // ---- token colours ----
+  const _rb0=renderBoard; renderBoard=function(){
+    const saved=[]; (S.tokens||[]).forEach(t=>{ if (t.col!=null && COLS[t.col] && !t.rock && t.kind==="party"){ saved.push(t); } });
+    _rb0.apply(this,arguments);
+    saved.forEach(t=>{ const n=svg.querySelector(`.tok[data-id="${CSS.escape(t.id)}"]`); if(!n) return; const c=COLS[t.col];
+      n.querySelectorAll("circle,rect,path").forEach(e=>{ const f=e.getAttribute("fill"), s=e.getAttribute("stroke"); if (f===RAMP.teal.f) e.setAttribute("fill",c[1]); if (s===RAMP.teal.s) e.setAttribute("stroke",c[2]); });
+      n.querySelectorAll("text").forEach(e=>{ if (e.getAttribute("fill")===RAMP.teal.t) e.setAttribute("fill",c[3]); }); });
+  };
+  // ---- what players get to know about their own tokens ----
+  const _pe=pubExtra; pubExtra=function(st,t){ const o=_pe(st,t);
+    if (t.kind==="party"||t.playerMove){ if (t.hover) o.hover=true; if (t.flyHover) o.flyHover=true; if (t.felineOk) o.felineOk=true; if (t.felineOn) o.felineOn=true; if (t.felineLock) o.felineLock=true; if (t.dashN) o.dashN=t.dashN; if (t.col!=null) o.col=t.col; if (t.font!=null) o.font=t.font; }
+    return o; };
+  // ---- movement budget: Dash adds a speed, Feline Agility doubles the lot ----
+  function rebudget(t){ const b=speedOf(t), tot=b*(1+(t.dashN||0))*(t.felineOn?2:1); t.bonus=tot-b; }
+  const _rm=resetMove; resetMove=function(t){ _rm(t); if(!t) return; delete t.dashN; delete t.felineOn; };
+  const _nr=newRound; newRound=function(){
+    (S.tokens||[]).forEach(t=>{ if (t.felineLock && !t.felineOn && !(t.used>0)) delete t.felineLock; });   // a turn without moving recharges it
+    return _nr.apply(this,arguments); };
+  const _aa=applyAct; applyAct=function(t,v){
+    const a=v.act;
+    if (a==="dash"){ if (!S.battle) return; t.dashN=(t.dashN||0)+1; rebudget(t); S.notes.push({id:uid(),text:`${t.name} dashes`,round:S.round,at:Date.now()}); return; }
+    if (a==="feline"){ if (!S.battle||!t.felineOk||t.felineLock||t.felineOn) return; t.felineOn=true; t.felineLock=true; rebudget(t); S.notes.push({id:uid(),text:`${t.name} uses Feline Agility (speed doubled this turn)`,round:S.round,at:Date.now()}); return; }
+    if (a==="hover"){ if (t.hover) delete t.hover; else t.hover=true; return; }
+    if (a==="flyHover"){ if (!t.canFly) return; if (t.flyHover) delete t.flyHover; else { t.flyHover=true; t.flying=true; } return; }
+    return _aa.apply(this,arguments); };
+  // ---- tremorsense only feels creatures that are moving and touching the ground ----
+  const moved=new Map();
+  const _cm=commit; commit=function(){
+    const nowT=Date.now(); (S.tokens||[]).forEach(t=>{ const p=moved.get(t.id); if (p && (Math.abs(p[0]-t.x)>0.4||Math.abs(p[1]-t.y)>0.4)){ t.mvAt=nowT; t.mvRound=S.round; } moved.set(t.id,[t.x,t.y]); });
+    return _cm.apply(this,arguments); };
+  (S.tokens||[]).forEach(t=>moved.set(t.id,[t.x,t.y]));
+  const offGround=h=>isFlying(h)||h.flying||h.hover||h.flyHover;
+  const isMoving=(st,h)=>{ if (st.battle) return h.mvRound===st.round || (h.used>0); return Date.now()-(h.mvAt||0)<15000; };
+  const _fo=feelOf; feelOf=function(st,o,h,d){
+    if (o.blind && d<=(o.blindR||30) && losClear(st,o,h,d)) return "blind";
+    if (o.tremor && d<=(o.tremorR||30) && !offGround(h) && isMoving(st,h)) return "tremor";
+    return null; };
+  // ---- DM: per-token switches ----
+  const _rs=renderSel; renderSel=function(){ _rs(); if (MODE!=="dm"||ui.selCrystal||!ui.sel||ui.sel.length!==1) return; const t=tok(ui.sel[0]), box=document.getElementById("selBody"); if(!t||!box) return;
+    const row=document.createElement("div"); row.className="row"; row.style.cssText="gap:10px 14px;flex-wrap:wrap;margin-top:6px;font-size:14px";
+    row.innerHTML=`<label class="row" style="gap:4px"><input type="checkbox" id="xHover" ${t.hover?"checked":""}>Off the ground (hovering)</label>${t.canFly?`<label class="row" style="gap:4px"><input type="checkbox" id="xFlyHover" ${t.flyHover?"checked":""}>Can hover (stays aloft)</label>`:""}${t.kind==="party"?`<label class="row" style="gap:4px"><input type="checkbox" id="xFeline" ${t.felineOk?"checked":""}>Feline Agility</label>`:""}`;
+    box.appendChild(row); const $=id=>document.getElementById(id);
+    $("xHover").onchange=e=>{ if(e.target.checked) t.hover=true; else delete t.hover; commit(); renderAll(); };
+    if ($("xFlyHover")) $("xFlyHover").onchange=e=>{ if(e.target.checked) t.flyHover=true; else delete t.flyHover; commit(); renderAll(); };
+    if ($("xFeline")) $("xFeline").onchange=e=>{ if(e.target.checked) t.felineOk=true; else { delete t.felineOk; delete t.felineOn; delete t.felineLock; } commit(); renderAll(); };
+  };
+  // ---- player card: Dash, Feline Agility, hover, and personal style ----
+  const _rp=renderPSel; renderPSel=function(){ _rp(); const t=ui.pSel&&tok(ui.pSel), body=document.getElementById("pSelBody"); if(!t||!t.pick||!body||t.kind!=="party") return;
+    const can=t.movable&&!PREVIEW, bt=!!S.battle, box=document.createElement("div"); box.style.cssText="margin-top:8px;padding-top:6px;border-top:1px solid var(--line);font-size:14px";
+    const fel=t.felineOk?`<button class="small${t.felineOn?" primary":""}" id="pxFeline" ${can&&bt&&!t.felineLock?"":"disabled"} title="Double your speed for this turn. Recharges after a turn where you don't move.">${t.felineOn?"Feline Agility: on":t.felineLock?"Feline Agility: used":"Feline Agility"}</button>`:"";
+    box.innerHTML=`<div class="row" style="gap:6px;flex-wrap:wrap"><button class="small" id="pxDash" ${can&&bt?"":"disabled"} title="Adds your speed again for this turn">Dash${t.dashN?" ×"+t.dashN:""}</button>${fel}
+      <button class="small${t.hover?" primary":""}" id="pxHover" ${can?"":"disabled"} title="Levitating or otherwise off the ground: tremorsense can't feel you">${t.hover?"Hovering":"Hover"}</button>
+      ${t.canFly?`<button class="small${t.flyHover?" primary":""}" id="pxFlyHover" ${can?"":"disabled"} title="Fly with hover: you stay aloft">${t.flyHover?"Hover flight: on":"Hover flight"}</button>`:""}</div>
+      ${!bt?`<p class="muted" style="margin:4px 0 0;font-size:13px">Dash${t.felineOk?" and Feline Agility":""} work in battle mode, on your turn.</p>`:""}
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px"><span class="muted">Your colour</span>${COLS.map((c,i)=>`<button class="small pxCol" data-c="${i}" title="${c[0]}" style="width:22px;height:22px;padding:0;border-radius:50%;background:${c[1]};border:${(t.col??0)===i?3:2}px solid ${c[2]}"></button>`).join("")}</div>
+      <label class="row" style="gap:6px;margin-top:6px"><span class="muted">Bubble font</span><select id="pxFont">${FONTS.map((f,i)=>`<option value="${i}" ${(t.font??0)===i?"selected":""} style="font-family:${f[1]}">${f[0]}</option>`).join("")}</select></label>`;
+    body.appendChild(box); const $=id=>document.getElementById(id);
+    $("pxDash").onclick=()=>sendAct(t,"dash",1);
+    if ($("pxFeline")) $("pxFeline").onclick=()=>sendAct(t,"feline",1);
+    $("pxHover").onclick=()=>sendAct(t,"hover",1);
+    if ($("pxFlyHover")) $("pxFlyHover").onclick=()=>sendAct(t,"flyHover",1);
+    const style=(c,f)=>{ if (!fbRoot) return; fbRoot.child("fxReq/"+t.id).push({k:"style",c:c,f:f,at:firebase.database.ServerValue.TIMESTAMP}).then(()=>setStatus("Style saved: it shows once the DM's board updates")).catch(()=>setStatus("Ask the DM to switch on emotes for you to change your style")); };
+    box.querySelectorAll(".pxCol").forEach(b=>b.onclick=()=>style(+b.dataset.c,t.font??0));
+    $("pxFont").onchange=e=>style(t.col??0,+e.target.value);
+  };
+  // the lead DM tab applies style requests (the emote watcher clears the queue)
+  if (typeof fbRoot!=="undefined"){ const hook=()=>{ if (!fbRoot || hook.on) return; hook.on=true;
+    fbRoot.child("fxReq").on("value",sn=>{ if (MODE!=="dm"||!amLeader) return; const v=sn.val(); if(!v) return; let ch=false;
+      for (const src in v) for (const k in v[src]){ const r=v[src][k]; if (r.k!=="style") continue; const t=tok(src); if(!t) continue;
+        if (Number.isInteger(r.c)&&COLS[r.c]) { t.col=r.c; ch=true; } if (Number.isInteger(r.f)&&FONTS[r.f]) { t.font=r.f; ch=true; } }
+      if (ch){ commit(); renderAll(); } },()=>{}); };
+    setInterval(hook,1500); hook(); }
 })();
 
 })();
