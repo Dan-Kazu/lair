@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-21c";
+const APP_VER = "2026-11-21d";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3507,7 +3507,8 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     fbRoot.update(upd).then(()=>{ sentPub=fP; }).catch(()=>{});
   };
   // several updates often land in the same instant: draw the board once for all of them
-  let paintRaf=0, paintLater=false; const paintSoon=()=>{ if (document.hidden){ paintLater=true; return; } if (paintRaf) return; paintRaf=requestAnimationFrame(()=>{ paintRaf=0; renderAll(); }); };
+  let paintRaf=0, paintTo=0, paintLater=false; const paintNow=()=>{ cancelAnimationFrame(paintRaf); clearTimeout(paintTo); paintRaf=0; paintTo=0; renderAll(); };
+  const paintSoon=()=>{ if (document.hidden){ paintLater=true; return; } if (paintRaf||paintTo) return; paintRaf=requestAnimationFrame(paintNow); paintTo=setTimeout(paintNow,150); };
   document.addEventListener("visibilitychange",()=>{ if (!document.hidden && paintLater){ paintLater=false; renderAll(); } });
   watchPublic=function(){
     setStatus("Connecting to the live board…");
