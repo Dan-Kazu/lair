@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-21d";
+const APP_VER = "2026-11-21e";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3604,6 +3604,28 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
 (function(){
   const _er=envRaster; let ref=null, ok=false, last=null;
   envRaster=function(st){ const z=(st&&st.env)||[]; if (ok && z===ref && last) return last; last=_er.apply(this,arguments); ref=z; ok=true; queueMicrotask(()=>{ ok=false; }); return last; };
+})();
+
+// ---- when the map has been updated, ask everyone with an old copy open to refresh ----
+(function(){
+  const mine=typeof APP_VER!=="undefined"?APP_VER:""; let shown=false, busy=false;
+  function show(){
+    if (shown) return; shown=true;
+    const o=document.createElement("div"); o.id="refreshOverlay"; o.setAttribute("role","alertdialog"); o.setAttribute("aria-label","Please refresh");
+    o.style.cssText="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:rgba(10,10,12,.82);backdrop-filter:blur(3px);color:#fff;text-align:center;padding:24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif";
+    o.innerHTML=`<div style="font-size:clamp(40px,9vw,96px);font-weight:800;letter-spacing:-.02em;line-height:1">Please refresh</div>
+      <div style="font-size:clamp(16px,2.4vw,22px);opacity:.85">The map has been updated. Refresh the page to keep playing.</div>
+      <button type="button" style="font:700 20px system-ui,sans-serif;padding:12px 28px;border-radius:999px;border:none;background:#fff;color:#111;cursor:pointer">Refresh now</button>`;
+    o.querySelector("button").onclick=()=>location.reload();
+    document.body.appendChild(o);
+  }
+  async function check(){
+    if (shown || busy || !mine) return; busy=true;
+    try { const r=await fetch(location.pathname+"?v="+Date.now(),{cache:"no-store"}); if (r.ok){ const m=(await r.text()).match(/APP_VER = "([^"]+)"/); if (m && m[1]!==mine) show(); } } catch(e){}
+    busy=false;
+  }
+  setTimeout(check,20000); setInterval(check,120000);
+  document.addEventListener("visibilitychange",()=>{ if (!document.hidden) check(); });
 })();
 
 })();
