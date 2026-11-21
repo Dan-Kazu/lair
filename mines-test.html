@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-21g";
+const APP_VER = "2026-11-21h";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3667,6 +3667,95 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     setStatus(`Recording saved (${Math.round(blob.size/1048576)} MB).`);
   }
   btn.onclick=()=>{ if (rec && rec.state!=="inactive") rec.stop(); else start(); };
+})();
+
+// ---- ceiling hazards (falling rocks / unstable crystals) and shattering arnicite crystals ----
+(function(){
+  if (typeof COVER_PIECES==="undefined" || typeof drawDeco!=="function" || typeof decoList!=="function") return;
+  const NOW=()=>typeof nowServer==="function"?nowServer():Date.now();
+  const HAZ_NAME={rocks:"Falling rocks",crystal:"Unstable crystals"};
+  COVER_PIECES.hazrocks=()=>({t:"haz",k:"rocks",r:10});
+  COVER_PIECES.hazcry=()=>({t:"haz",k:"crystal",r:10});
+  DECO_NAME.haz="Ceiling hazard";
+  { const add=document.getElementById("decoAdd"); if (add){
+      add.insertAdjacentHTML("beforeend",`<option value="hazrocks">Click to add: falling rocks (hidden ceiling hazard)</option><option value="hazcry">Click to add: unstable crystals (hidden ceiling hazard)</option>`); } }
+  const _dh=decoHit; decoHit=function(d,x,y){ if (d.t==="haz") return Math.hypot(d.x-x,d.y-y)<=3; return _dh.apply(this,arguments); };
+  // players never learn where a hazard is until it goes off; they only see the blast
+  const _pv=publicView; publicView=function(st){ const o=_pv.apply(this,arguments);
+    if (Array.isArray(o.deco)) o.deco=o.deco.filter(d=>d.t!=="haz");
+    const now=NOW(); const seen=new Set(st.seenAreas||[]), hasAreas=typeof areasOf==="function"&&areasOf(st).length; o.blasts=(st.blasts||[]).filter(b=>now-b.at<15000 && (!hasAreas || seen.has(decoAreaAt(b.x,b.y)))).map(b=>({x:b.x,y:b.y,r:b.r,k:b.k,at:b.at}));
+    return o; };
+  // ---- drawing: DM sees hazards and blast previews; everyone sees blasts (under the fog, like other map features) ----
+  const css=document.createElement("style");
+  css.textContent=`@keyframes blastFlash{0%{opacity:.95;transform:scale(.15)}18%{opacity:.85;transform:scale(1)}100%{opacity:0;transform:scale(1.04)}}
+@keyframes blastRing{0%{opacity:0}10%{opacity:1}75%{opacity:.7}100%{opacity:0}}
+.blastFlash{transform-box:fill-box;transform-origin:center;animation:blastFlash 2.6s ease-out forwards}
+.blastRing{animation:blastRing 15s linear forwards}`;
+  document.head.appendChild(css);
+  const NS="http://www.w3.org/2000/svg";
+  const mk=(tag,attrs,parent)=>{ const n=document.createElementNS(NS,tag); for (const k in attrs) n.setAttribute(k,attrs[k]); parent.appendChild(n); return n; };
+  const COL={rocks:["#8A6A4A","#C9A27A"],crystal:["#8E86C8","#D9D4FF"],shatter:["#9EA1A8","#F3F4F7"]};
+  function drawTop(){
+    const old=svg.querySelector(":scope > g.hazTop"); if (old) old.remove();
+    const now=NOW(), live=(S.blasts||[]).filter(b=>now-b.at<15000);
+    const D=MODE==="dm"?decoOf(S):[], sel=MODE==="dm"&&ui.decoEdit&&ui.decoSel!=null?decoList()[ui.decoSel]:null;
+    const hz=D.filter(d=>d.t==="haz"); if (!live.length && !hz.length && !(sel&&sel.t==="cry")) return;
+    const g=mk("g",{class:"hazTop","pointer-events":"none"},svg);
+    live.forEach(b=>{ const age=(now-b.at)/1000, c=COL[b.k]||COL.shatter, X=fx(b.x), Y=fy(b.y), R=b.r*U;
+      mk("circle",{cx:X,cy:Y,r:R,fill:c[1],"fill-opacity":0.75,stroke:"#fff","stroke-width":0.9*U,class:"blastFlash",style:`animation-delay:-${age}s`},g);
+      mk("circle",{cx:X,cy:Y,r:R,fill:c[0],"fill-opacity":0.16,stroke:c[1],"stroke-width":0.7*U,"stroke-dasharray":`${1.5*U} ${1*U}`,class:"blastRing",style:`animation-delay:-${age}s`},g);
+      let s=Math.floor(b.at%9973)+1; const rnd=()=>{ s=(s*16807)%2147483647; return s/2147483647; };
+      for (let i=0;i<16;i++){ const a=rnd()*Math.PI*2, d=Math.sqrt(rnd())*R*0.95, x=X+Math.cos(a)*d, y=Y+Math.sin(a)*d, z=(0.6+rnd()*1.0)*U;
+        mk("path",{d:`M${x},${y-z}L${x+z*0.8},${y+z*0.6}L${x-z*0.7},${y+z*0.5}Z`,fill:c[b.k==="rocks"?0:1],stroke:"#1E1B18","stroke-width":0.25*U,class:"blastRing",style:`animation-delay:-${age}s`},g); }
+    });
+    hz.forEach(d=>{ const X=fx(d.x), Y=fy(d.y), c=COL[d.k]||COL.rocks, on=d===sel;
+      mk("circle",{cx:X,cy:Y,r:d.r*U,fill:c[0],"fill-opacity":on?0.18:0.08,stroke:c[1],"stroke-width":(on?0.7:0.45)*U,"stroke-dasharray":`${1.4*U} ${1*U}`},g);
+      mk("circle",{cx:X,cy:Y,r:2.6*U,fill:"#1E1B18",stroke:c[1],"stroke-width":0.5*U},g);
+      mk("path",{d:`M${X-1.4*U},${Y-1.3*U}L${X-0.2*U},${Y-0.1*U}L${X-0.8*U},${Y+0.5*U}L${X+1.1*U},${Y+1.5*U}M${X-0.2*U},${Y-0.1*U}L${X+1.1*U},${Y-1.1*U}`,fill:"none",stroke:c[1],"stroke-width":0.45*U,"stroke-linecap":"round"},g); });
+    if (sel && sel.t==="cry"){ const r=sel.br||10;
+      mk("circle",{cx:fx(sel.x),cy:fy(sel.y),r:r*U,fill:"#E5484D","fill-opacity":0.1,stroke:"#E5484D","stroke-width":0.6*U,"stroke-dasharray":`${1.4*U} ${1*U}`},g); }
+  }
+  // ---- going off ----
+  function caught(x,y,r){ return (S.tokens||[]).filter(t=>!t.dead && !t.hidden && Math.hypot(t.x-x,t.y-y)<=r+(sizeOf(t)||5)/2); }
+  function boom(x,y,r,k,what){
+    const hit=caught(x,y,r), names=hit.map(t=>t.name);
+    (S.blasts||(S.blasts=[])).push({x,y,r,k,at:NOW()});
+    if (k==="rocks"){ const L=decoList(); for (let i=0;i<3;i++){ const a=Math.random()*Math.PI*2, d=Math.random()*r*0.6; const X=Math.round((x+Math.cos(a)*d)*10)/10, Y=Math.round((y+Math.sin(a)*d)*10)/10; L.push(Object.assign({area:decoAreaAt(X,Y),x:X,y:Y},COVER_PIECES.rubble())); } }
+    const msg=`${what} (${r} ft): ${names.length?names.join(", "):"nobody caught"}`;
+    S.notes.push({id:uid(),text:msg,round:S.round,at:Date.now()});
+    ui.blastHit=hit.map(t=>t.id); setTimeout(()=>{ ui.blastHit=null; renderBoard(); },6000);
+    commit(); renderAll(); setStatus("💥 "+msg);
+    setTimeout(()=>{ if (MODE==="dm"){ renderBoard(); } },2700);
+  }
+  // old blasts are tidied away so they stop being sent
+  setInterval(()=>{ if (MODE!=="dm" || !(S.blasts&&S.blasts.length)) return; const keep=S.blasts.filter(b=>NOW()-b.at<15000); if (keep.length!==S.blasts.length){ S.blasts=keep; if (!keep.length) delete S.blasts; commit(); } },4000);
+  // tokens caught in a blast get a red ring on the DM's board for a few seconds
+  const _rb=renderBoard; renderBoard=function(){ const r=_rb.apply(this,arguments);
+    drawTop();
+    if (MODE==="dm" && ui.blastHit) ui.blastHit.forEach(id=>{ const n=svg.querySelector(`.tok[data-id="${CSS.escape(id)}"] > g`); if (!n) return; mk("circle",{r:(sizeOf(tok(id))||5)/2+1.2,fill:"none",stroke:"#E5484D","stroke-width":0.8},n); });
+    // players: keep the blast animating smoothly
+    return r; };
+  // ---- DM controls in Edit map features ----
+  const tools=document.getElementById("decoTools");
+  if (tools){
+    const box=document.createElement("span"); box.id="hazTools"; box.className="row"; box.style.cssText="gap:4px;display:inline-flex;align-items:center";
+    box.innerHTML=`<span id="hazLbl" class="muted" style="font-size:13px"></span><button id="hazLess" class="small" aria-label="Smaller radius">−</button><b id="hazR" style="min-width:42px;text-align:center"></b><button id="hazMore" class="small" aria-label="Bigger radius">+</button><button id="hazGo" class="small primary"></button>`;
+    tools.appendChild(document.createTextNode(" ")); tools.appendChild(box);
+    const cur=()=>ui.decoEdit&&ui.decoSel!=null?decoList()[ui.decoSel]:null;
+    const getR=d=>d.t==="haz"?d.r:(d.br||10), setR=(d,v)=>{ if (d.t==="haz") d.r=v; else d.br=v; };
+    const bump=k=>decoChange(d=>setR(d,Math.max(5,Math.min(60,getR(d)+k))));
+    document.getElementById("hazLess").onclick=()=>bump(-5); document.getElementById("hazMore").onclick=()=>bump(5);
+    document.getElementById("hazGo").onclick=()=>{ const d=cur(); if (!d) return; const L=decoList(), i=ui.decoSel;
+      L.splice(i,1); ui.decoSel=null; decoUI();
+      if (d.t==="haz") boom(d.x,d.y,d.r,d.k,HAZ_NAME[d.k]||"Ceiling collapse");
+      else if (d.t==="cry") boom(d.x,d.y,d.br||10,"shatter",d.k==="dia"?"Geode shatters":"Crystal shatters"); };
+    const _du=decoUI; decoUI=function(){ _du.apply(this,arguments); const d=cur(), show=!!d&&(d.t==="haz"||d.t==="cry"); box.hidden=!show; box.style.display=show?"inline-flex":"none"; if (!show) return;
+      document.getElementById("hazLbl").textContent=d.t==="haz"?(HAZ_NAME[d.k]+" · danger area"):"Blast radius";
+      document.getElementById("hazR").textContent=getR(d)+" ft";
+      document.getElementById("hazGo").textContent=d.t==="haz"?"💥 Trigger":"💥 Shatter";
+      if (d.t==="haz") setStatus(`${HAZ_NAME[d.k]} selected (hidden from players): drag to move, set the danger area, then press Trigger.`); };
+    decoUI();
+  }
 })();
 
 })();
