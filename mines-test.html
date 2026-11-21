@@ -597,7 +597,7 @@ function sendPlayerMove(t,walked){
 // player moves: one DM tab (the leader) applies them, in small batches
 let moveQ={}, moveTimer=null, lead=null, amLeader=false, listening=false;
 const lastMoves={};
-function applyMove(id,v){ if(!v) return; lastMoves[id]=v; moveQ[id]=v; if(!moveTimer) moveTimer=setTimeout(flushMoves,40); }
+function applyMove(id,v){ if(!v) return; lastMoves[id]=v; moveQ[id]=v; if(!moveTimer){ if (document.hidden){ moveTimer=1; queueMicrotask(flushMoves); } else moveTimer=setTimeout(flushMoves,40); } }
 function flushMoves(){
   moveTimer=null;
   if (!amLeader){ moveQ={}; return; }
@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-21a";
+const APP_VER = "2026-11-21b";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3437,9 +3437,13 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
   const encVis0=v=>{ if (!Array.isArray(v) || !v.every(P=>Array.isArray(P) && P.every(p=>Array.isArray(p) && p.length===2 && isFinite(p[0]) && isFinite(p[1])))) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
     return "~"+f+"|"+v.map(P=>{ let px=0,py=0; return P.map(p=>{ const x=Math.round(p[0]*f), y=Math.round(p[1]*f), s=(x-px)+","+(y-py); px=x; py=y; return s; }).join(";"); }).join("|"); };
   const decVis=s=>{ const a=s.slice(1).split("|"), f=+a[0]; return a.slice(1).map(P=>{ let x=0,y=0; return P?P.split(";").map(q=>{ const [dx,dy]=q.split(","); x+=+dx; y+=+dy; return [x/f,y/f]; }):[]; }); };
+  const hashS=s=>{ let h=0; for (let i=0;i<s.length;i++) h=(Math.imul(h,31)+s.charCodeAt(i))>>>0; return h.toString(36)+s.length.toString(36); };
+  const polyPieces=(L,pre,out)=>{ if (!Array.isArray(L)) return null; const keys=[]; for (const P of L){ const e=encVis([P]); if (e==null) return null; const h=hashS(e); out[pre+"/"+h]=e; keys.push(h); } return keys; };
   function flat(o,split){            // split: {tokens:true, setup:true}
     const out={};
     for (const k in o){
+      if (!split.setup && k==="vis"){ const tmp={}; const ks=polyPieces(o.vis,"v",tmp); if (ks){ Object.assign(out,tmp); out["p/vis"]='"split"'; out.vo=ks.join(","); continue; } }
+      if (!split.setup && k==="lights" && o.lights && typeof o.lights==="object"){ const tmp={}; if (polyPieces(o.lights.b,"lb",tmp) && polyPieces(o.lights.d,"ld",tmp)){ Object.assign(out,tmp); out["p/lights"]='"split"'; continue; } }
       if (k==="tokens"){ (o.tokens||[]).forEach(t=>{ out["t/"+t.id]=J(t); }); out.o=(o.tokens||[]).map(t=>t.id).join(","); continue; }
       if (k==="setup" && split.setup && o.setup){ for (const s in o.setup){ const v=J(o.setup[s]); if (v!=null) out["s/"+s]=v; } out.hs="1"; continue; }
       if (k==="vis" && !split.setup){ const e=encVis(o[k]); if (e!=null){ out["p/"+k]=e; continue; } }
@@ -3447,7 +3451,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     }
     return out;
   }
-  function rawOf(x){ const out={}; if (!x) return out; ["p","t","s"].forEach(g=>{ const m=x[g]; if (m) for (const k in m) out[g+"/"+k]=m[k]; }); if (x.o!=null) out.o=x.o; if (x.hs!=null) out.hs=x.hs; return out; }
+  function rawOf(x){ const out={}; if (!x) return out; ["p","t","s","v","lb","ld"].forEach(g=>{ const m=x[g]; if (m) for (const k in m) out[g+"/"+k]=m[k]; }); if (x.o!=null) out.o=x.o; if (x.vo!=null) out.vo=x.vo; if (x.hs!=null) out.hs=x.hs; return out; }
   const pcache=new Map();
   const parseP=(key,s,cache)=>{ const P=x=>x.charAt(0)==="~"?decVis(x):JSON.parse(x); if (!cache) return P(s); const h=pcache.get(key); if (h && h.s===s) return h.v; const v=P(s); pcache.set(key,{s,v}); return v; };
   function rebuild(x,cache){
@@ -3459,6 +3463,10 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     String(x.o||"").split(",").forEach(id=>{ if (id && T[id]!=null && !seen.has(id)){ o.tokens.push(JSON.parse(T[id])); seen.add(id); } });
     for (const id in T) if (!seen.has(id)) o.tokens.push(JSON.parse(T[id]));
     if (x.s || x.hs){ o.setup={}; for (const k in (x.s||{})) o.setup[k]=JSON.parse(x.s[k]); }
+    const pieces=(g)=>{ const m=x[g]||{}, r=[]; for (const k in m){ const v=parseP(g+"/"+k,m[k],cache); if (Array.isArray(v)) r.push(...v); } return r; };
+    if (o.vis==="split") o.vis=x.vo!=null ? String(x.vo).split(",").filter(Boolean).map(k=>{ const m=x.v||{}; if (m[k]==null) return null; const v=parseP("v/"+k,m[k],cache); return v&&v[0]; }).filter(Boolean) : pieces("v");
+    if (o.lights==="split") o.lights={b:pieces("lb"), d:pieces("ld")};
+    if (cache && pcache.size>4000) pcache.clear();
     return o;
   }
   function nestOf(f){ const x={}; for (const k in f){ const i=k.indexOf("/"); if (i<0){ x[k]=f[k]; continue; } const g=k.slice(0,i); (x[g]=x[g]||{})[k.slice(i+1)]=f[k]; } return x; }
