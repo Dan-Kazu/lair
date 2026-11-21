@@ -596,7 +596,7 @@ function sendPlayerMove(t,walked){
 // player moves: one DM tab (the leader) applies them, in small batches
 let moveQ={}, moveTimer=null, lead=null, amLeader=false, listening=false;
 const lastMoves={};
-function applyMove(id,v){ if(!v) return; lastMoves[id]=v; moveQ[id]=v; if(!moveTimer) moveTimer=setTimeout(flushMoves,40); }
+function applyMove(id,v){ if(!v) return; lastMoves[id]=v; moveQ[id]=v; if(!moveTimer){ if (document.hidden){ moveTimer=1; queueMicrotask(flushMoves); } else moveTimer=setTimeout(flushMoves,40); } }
 function flushMoves(){
   moveTimer=null;
   if (!amLeader){ moveQ={}; return; }
@@ -625,15 +625,15 @@ function listenLive(){
   mref.on("child_added", sn=>applyMove(sn.key, sn.val()));
   mref.on("child_changed", sn=>applyMove(sn.key, sn.val()));
   let leadLoaded=false;
-  const beat=()=>{ if (MODE!=="dm"||!canWrite||!leadLoaded) return; const stale=!lead || (nowServer()-(lead.at||0))>12000;
-    if (stale || lead.tab===TAB) fbRoot.child("dm/lead").set({tab:TAB, at:firebase.database.ServerValue.TIMESTAMP}).catch(()=>{}); };
+  const beat=()=>{ if (MODE!=="dm"||!canWrite||!leadLoaded) return; const stale=!lead || (nowServer()-(lead.at||0))>12000 || (lead.hid && !document.hidden && lead.tab!==TAB);
+    if (stale || lead.tab===TAB) fbRoot.child("dm/lead").set({tab:TAB, at:firebase.database.ServerValue.TIMESTAMP, hid:document.hidden}).catch(()=>{}); };
   fbRoot.child("dm/lead").on("value", sn=>{
     lead=sn.val(); const was=amLeader; amLeader=!!lead && lead.tab===TAB;
     if (amLeader!==was) setStatus(amLeader ? "Signed in as DM. This tab is handling player moves." : "Signed in as DM. Another DM tab is handling player moves.");
     if (!leadLoaded){ leadLoaded=true; beat(); }
     if (amLeader && !was) mref.once("value", all=>{ const v=all.val()||{}; Object.keys(v).forEach(k=>applyMove(k,v[k])); });
   });
-  setInterval(beat,4000);
+  setInterval(beat,4000); document.addEventListener("visibilitychange",beat);
   window.addEventListener("beforeunload",()=>{ if (amLeader) fbRoot.child("dm/lead").remove(); });
 }
 // live drag tracking: everyone sees tokens slide while they're dragged
@@ -677,7 +677,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20h";
+const APP_VER = "2026-11-21c";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3425,12 +3425,17 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
 (function(){
   const J=v=>{ const s=JSON.stringify(v); return s===undefined?null:s; };
   // vision polygons are long lists of points: send them as small integer steps instead
-  const encVis=v=>{ if (!Array.isArray(v)) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
+  const encVis=v=>{ try{ return encVis0(v); }catch(e){ return null; } };
+  const encVis0=v=>{ if (!Array.isArray(v) || !v.every(P=>Array.isArray(P) && P.every(p=>Array.isArray(p) && p.length===2 && isFinite(p[0]) && isFinite(p[1])))) return null; let f=2; outer: for (const P of v) for (const p of P) if (Math.abs(p[0]*2-Math.round(p[0]*2))>1e-6||Math.abs(p[1]*2-Math.round(p[1]*2))>1e-6){ f=10; break outer; }
     return "~"+f+"|"+v.map(P=>{ let px=0,py=0; return P.map(p=>{ const x=Math.round(p[0]*f), y=Math.round(p[1]*f), s=(x-px)+","+(y-py); px=x; py=y; return s; }).join(";"); }).join("|"); };
   const decVis=s=>{ const a=s.slice(1).split("|"), f=+a[0]; return a.slice(1).map(P=>{ let x=0,y=0; return P?P.split(";").map(q=>{ const [dx,dy]=q.split(","); x+=+dx; y+=+dy; return [x/f,y/f]; }):[]; }); };
+  const hashS=s=>{ let h=0; for (let i=0;i<s.length;i++) h=(Math.imul(h,31)+s.charCodeAt(i))>>>0; return h.toString(36)+s.length.toString(36); };
+  const polyPieces=(L,pre,out)=>{ if (!Array.isArray(L)) return null; const keys=[]; for (const P of L){ const e=encVis([P]); if (e==null) return null; const h=hashS(e); out[pre+"/"+h]=e; keys.push(h); } return keys; };
   function flat(o,split){            // split: {tokens:true, setup:true}
     const out={};
     for (const k in o){
+      if (!split.setup && k==="vis"){ const tmp={}; const ks=polyPieces(o.vis,"v",tmp); if (ks){ Object.assign(out,tmp); out["p/vis"]='"split"'; out.vo=ks.join(","); continue; } }
+      if (!split.setup && k==="lights" && o.lights && typeof o.lights==="object"){ const tmp={}; if (polyPieces(o.lights.b,"lb",tmp) && polyPieces(o.lights.d,"ld",tmp)){ Object.assign(out,tmp); out["p/lights"]='"split"'; continue; } }
       if (k==="tokens"){ (o.tokens||[]).forEach(t=>{ out["t/"+t.id]=J(t); }); out.o=(o.tokens||[]).map(t=>t.id).join(","); continue; }
       if (k==="setup" && split.setup && o.setup){ for (const s in o.setup){ const v=J(o.setup[s]); if (v!=null) out["s/"+s]=v; } out.hs="1"; continue; }
       if (k==="vis" && !split.setup){ const e=encVis(o[k]); if (e!=null){ out["p/"+k]=e; continue; } }
@@ -3438,7 +3443,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     }
     return out;
   }
-  function rawOf(x){ const out={}; if (!x) return out; ["p","t","s"].forEach(g=>{ const m=x[g]; if (m) for (const k in m) out[g+"/"+k]=m[k]; }); if (x.o!=null) out.o=x.o; if (x.hs!=null) out.hs=x.hs; return out; }
+  function rawOf(x){ const out={}; if (!x) return out; ["p","t","s","v","lb","ld"].forEach(g=>{ const m=x[g]; if (m) for (const k in m) out[g+"/"+k]=m[k]; }); if (x.o!=null) out.o=x.o; if (x.vo!=null) out.vo=x.vo; if (x.hs!=null) out.hs=x.hs; return out; }
   const pcache=new Map();
   const parseP=(key,s,cache)=>{ const P=x=>x.charAt(0)==="~"?decVis(x):JSON.parse(x); if (!cache) return P(s); const h=pcache.get(key); if (h && h.s===s) return h.v; const v=P(s); pcache.set(key,{s,v}); return v; };
   function rebuild(x,cache){
@@ -3450,8 +3455,13 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     String(x.o||"").split(",").forEach(id=>{ if (id && T[id]!=null && !seen.has(id)){ o.tokens.push(JSON.parse(T[id])); seen.add(id); } });
     for (const id in T) if (!seen.has(id)) o.tokens.push(JSON.parse(T[id]));
     if (x.s || x.hs){ o.setup={}; for (const k in (x.s||{})) o.setup[k]=JSON.parse(x.s[k]); }
+    const pieces=(g)=>{ const m=x[g]||{}, r=[]; for (const k in m){ const v=parseP(g+"/"+k,m[k],cache); if (Array.isArray(v)) r.push(...v); } return r; };
+    if (o.vis==="split") o.vis=x.vo!=null ? String(x.vo).split(",").filter(Boolean).map(k=>{ const m=x.v||{}; if (m[k]==null) return null; const v=parseP("v/"+k,m[k],cache); return v&&v[0]; }).filter(Boolean) : pieces("v");
+    if (o.lights==="split") o.lights={b:pieces("lb"), d:pieces("ld")};
+    if (cache && pcache.size>4000) pcache.clear();
     return o;
   }
+  function nestOf(f){ const x={}; for (const k in f){ const i=k.indexOf("/"); if (i<0){ x[k]=f[k]; continue; } const g=k.slice(0,i); (x[g]=x[g]||{})[k.slice(i+1)]=f[k]; } return x; }
   function diff(base,f,sent){ const u={}; for (const k in f) if (sent[k]!==f[k]) u[base+"/"+k]=f[k]; for (const k in sent) if (!(k in f)) u[base+"/"+k]=null; return u; }
   window.__syncRebuildDM=x=>rebuild(x,false);
   window.__syncFlat=flat; window.__syncRebuild=rebuild; window.__syncDiff=diff;
@@ -3488,6 +3498,9 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     upd["public/at"]=Date.now();
     fbRoot.update(upd).then(()=>{ sentPub=fP; }).catch(()=>{});
   };
+  // several updates often land in the same instant: draw the board once for all of them
+  let paintRaf=0, paintLater=false; const paintSoon=()=>{ if (document.hidden){ paintLater=true; return; } if (paintRaf) return; paintRaf=requestAnimationFrame(()=>{ paintRaf=0; renderAll(); }); };
+  document.addEventListener("visibilitychange",()=>{ if (!document.hidden && paintLater){ paintLater=false; renderAll(); } });
   watchPublic=function(){
     setStatus("Connecting to the live board…");
     firebase.database().ref(".info/serverTimeOffset").on("value", sn=>{ serverOffset=sn.val()||0; }); watchLive(); startPresence("player");
@@ -3500,7 +3513,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
         const keep=drag.ids.map(id=>tok(id)).filter(Boolean).map(t=>({id:t.id,x:t.x,y:t.y}));
         S=holdLive(reconcile(next)); keep.forEach(k=>{ const t=tok(k.id); if(t){ t.x=k.x; t.y=k.y; } }); renderAll(); return; }
       if (ui.dragging){ pendingPublic=next; return; }
-      S=holdLive(reconcile(next)); setStatus(S.tokens.some(t=>t.movable)?"Live: you can drag your highlighted tokens":"Live"); renderAll();
+      S=holdLive(reconcile(next)); setStatus(S.tokens.some(t=>t.movable)?"Live: you can drag your highlighted tokens":"Live"); paintSoon();
     }, ()=>setStatus("Couldn't connect to the live board."));
   };
   becomeDM=async function(){
@@ -3514,12 +3527,22 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
       if (v && v.p){ sentDM=rawOf(v); legacyCleared=!v.state; }
       try { const ps=await fbRoot.child("public").once("value"); const pv=ps.val(); if (pv && pv.p) sentPub=rawOf(pv); } catch(e){}
       pushShared(); listenLive();
+      // another DM tab changed the board: merge piece by piece, so neither tab undoes the other's changes
+      let waitX=null;
+      const mergeIn=x=>{
+        if (!x.p){ let next; try{ next=SC(rebuild(x,false),false); }catch(e){ return; } applyRemote(next); return; }
+        const theirs=rawOf(x), mine=flat(S,{setup:true}), base=sentDM, out={}; let mineNewer=false;
+        new Set([...Object.keys(theirs),...Object.keys(mine),...Object.keys(base)]).forEach(k=>{
+          const b=base[k], m=mine[k], t=theirs[k]; let v;
+          if (m===b) v=t; else if (t===b){ v=m; if (m!==t) mineNewer=true; } else v=t;
+          if (v!=null) out[k]=v; });
+        let next; try{ next=SC(rebuild(nestOf(out),false),false); }catch(e){ return; }
+        sentDM=theirs; applyRemote(next); if (mineNewer) pushShared();
+      };
+      const tryMerge=()=>{ if (!waitX) return; if (ui.dragging){ setTimeout(tryMerge,150); return; } const x=waitX; waitX=null; mergeIn(x); };
       fbRoot.child("dm").on("value", sn=>{
         const x=sn.val(); if(!x||(!x.p&&!x.state)||x.writer===TAB||x.at===ui.remoteAt) return; ui.remoteAt=x.at;
-        let next; try{ next=SC(rebuild(x,false),false); }catch(e){ return; }
-        if (x.p) sentDM=rawOf(x);
-        if (ui.dragging){ pendingRemote=next; return; }
-        applyRemote(next);
+        const first=!waitX; waitX=x; if (first) tryMerge();
       });
       setStatus("Signed in as DM. Players see your moves live.");
     } catch(e){
@@ -3527,6 +3550,50 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     }
     pruneSelection(); renderAll(); updateUndo();
   };
+})();
+// ---- battle turns: movement circles for everyone whose turn it is, and a way to skip a creature's turns ----
+(function(){
+  // a skipped creature gets no turn: no movement circle, and players can't move it
+  const _ot=onTurn; onTurn=function(st,t){ if (st && st.battle && t && t.skip) return false; return _ot.apply(this,arguments); };
+  const setSkip=(t,on)=>{ if (!t) return; if (on) t.skip=true; else delete t.skip; commit(); renderAll(); };
+  // DM: every creature whose turn it is shows how far it can still move
+  const _rb=renderBoard; renderBoard=function(){
+    const r=_rb.apply(this,arguments);
+    const nodes=[...svg.querySelectorAll(":scope > .tok")];
+    if (nodes.length){ const first=nodes[0]; nodes.forEach(n=>{ const t=tok(n.dataset.id); if (t && t.dead && n!==first) svg.insertBefore(n,first); }); }
+    if (MODE==="dm" && S.battle && (S.init||[]).length){
+      nodes.forEach(n=>{ const t=tok(n.dataset.id); if (!t || t.kind==="cart" || !onTurn(S,t)) return;
+        const g=n.querySelector(":scope > g"); if (!g) return;
+        const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+        c.setAttribute("class","mvring"); c.setAttribute("r",Math.max(0,moveLeft(t))); c.setAttribute("fill","#1D9E75"); c.setAttribute("fill-opacity","0.06");
+        c.setAttribute("stroke","#1D9E75"); c.setAttribute("stroke-width","1"); c.setAttribute("stroke-dasharray","4 3"); c.setAttribute("pointer-events","none");
+        g.insertBefore(c,g.firstChild); });
+    }
+    return r; };
+  // the group's member list in the initiative card gets a Skip button for each creature
+  const _ri=renderInit; renderInit=function(){
+    _ri.apply(this,arguments); if (MODE!=="dm") return;
+    S.init.forEach((e,i)=>{ if (e.kind!=="group") return; const g=grp(e.ref); if (!g||!g.open) return;
+      const li=initList.children[i]; const ul=li&&li.querySelector("ul.members"); if (!ul) return;
+      const items=[...ul.children]; let k=0;
+      g.members.forEach(mid=>{ const t=tok(mid); if (!t) return; const m=items[k++]; if (!m) return; const row=m.querySelector(".row"); if (!row) return;
+        const b=document.createElement("button"); b.className="small"+(t.skip?" primary":""); b.textContent=t.skip?"Skipped":"Skip";
+        b.title=t.skip?"Give this creature its turns again":"This creature sits out its turns until you switch it back";
+        b.onclick=ev=>{ ev.stopPropagation(); setSkip(t,!t.skip); };
+        row.insertBefore(b,row.firstChild);
+        if (t.skip){ const nm=m.querySelector("span"); if (nm) nm.style.opacity="0.55"; } });
+    }); };
+  // ...and so does the Selected card
+  const _rs=renderSel; renderSel=function(){ _rs.apply(this,arguments); if (MODE!=="dm"||ui.selCrystal||!ui.sel||ui.sel.length!==1) return; const t=tok(ui.sel[0]), box=document.getElementById("selBody"); if(!t||!box||t.kind==="cart") return;
+    const l=document.createElement("label"); l.className="row"; l.style.cssText="gap:4px;margin-top:6px;font-size:14px";
+    l.innerHTML=`<input type="checkbox" ${t.skip?"checked":""}>Skip its turns`; l.title="It sits out its turns in battle until you untick this";
+    l.querySelector("input").onchange=e=>setSkip(t,e.target.checked); box.appendChild(l); };
+  try { renderAll(); } catch(e){}
+})();
+// ---- speed: the darkness/terrain map is looked up thousands of times while working out sight and light; check it once per update, not on every lookup ----
+(function(){
+  const _er=envRaster; let ref=null, ok=false, last=null;
+  envRaster=function(st){ const z=(st&&st.env)||[]; if (ok && z===ref && last) return last; last=_er.apply(this,arguments); ref=z; ok=true; queueMicrotask(()=>{ ok=false; }); return last; };
 })();
 
 })();
