@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-20j";
+const APP_VER = "2026-11-20k";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3575,6 +3575,12 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     l.innerHTML=`<input type="checkbox" ${t.skip?"checked":""}>Skip its turns`; l.title="It sits out its turns in battle until you untick this";
     l.querySelector("input").onchange=e=>setSkip(t,e.target.checked); box.appendChild(l); };
   try { renderAll(); } catch(e){}
+})();
+
+// ---- speed: the darkness/terrain map is looked up thousands of times while working out sight and light; check it once per update, not on every lookup ----
+(function(){
+  const _er=envRaster; let ref=null, ok=false, last=null;
+  envRaster=function(st){ const z=(st&&st.env)||[]; if (ok && z===ref && last) return last; last=_er.apply(this,arguments); ref=z; ok=true; queueMicrotask(()=>{ ok=false; }); return last; };
 })();
 
 })();
