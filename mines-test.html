@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-21b";
+const APP_VER = "2026-11-21c";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3506,6 +3506,9 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     upd["public/at"]=Date.now();
     fbRoot.update(upd).then(()=>{ sentPub=fP; }).catch(()=>{});
   };
+  // several updates often land in the same instant: draw the board once for all of them
+  let paintRaf=0, paintLater=false; const paintSoon=()=>{ if (document.hidden){ paintLater=true; return; } if (paintRaf) return; paintRaf=requestAnimationFrame(()=>{ paintRaf=0; renderAll(); }); };
+  document.addEventListener("visibilitychange",()=>{ if (!document.hidden && paintLater){ paintLater=false; renderAll(); } });
   watchPublic=function(){
     setStatus("Connecting to the live board…");
     firebase.database().ref(".info/serverTimeOffset").on("value", sn=>{ serverOffset=sn.val()||0; }); watchLive(); startPresence("player");
@@ -3518,7 +3521,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
         const keep=drag.ids.map(id=>tok(id)).filter(Boolean).map(t=>({id:t.id,x:t.x,y:t.y}));
         S=holdLive(reconcile(next)); keep.forEach(k=>{ const t=tok(k.id); if(t){ t.x=k.x; t.y=k.y; } }); renderAll(); return; }
       if (ui.dragging){ pendingPublic=next; return; }
-      S=holdLive(reconcile(next)); setStatus(S.tokens.some(t=>t.movable)?"Live: you can drag your highlighted tokens":"Live"); renderAll();
+      S=holdLive(reconcile(next)); setStatus(S.tokens.some(t=>t.movable)?"Live: you can drag your highlighted tokens":"Live"); paintSoon();
     }, ()=>setStatus("Couldn't connect to the live board."));
   };
   becomeDM=async function(){
