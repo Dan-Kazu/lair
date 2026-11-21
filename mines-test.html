@@ -678,7 +678,7 @@ function watchLive(){
   fbRoot.child("live").on("value", sn=>{ const v=sn.val()||{}; for (const k in liveMap) if(!v[k]){ if (MODE!=="dm") liveHold[k]={x:liveMap[k].x,y:liveMap[k].y,until:Date.now()+2500}; delete liveMap[k]; } for (const k in v) liveMap[k]=v[k]; paintLive(); if (MODE==="dm" && amLeader && Object.keys(v).length) scheduleLivePublic(); }, ()=>{});
 }
 // who has the board open
-const APP_VER = "2026-11-21f";
+const APP_VER = "2026-11-21g";
 let presenceOn=false;
 function startPresence(role){
   if (!fbRoot || presenceOn) return; presenceOn=true;
@@ -3641,19 +3641,19 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
   const clock=()=>{ const s=Math.floor((Date.now()-started)/1000), p=n=>String(n).padStart(2,"0"); btn.textContent=`⏹ Stop recording ${Math.floor(s/3600)}:${p(Math.floor(s/60)%60)}:${p(s%60)}`; };
   async function start(){
     try {
-      stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:24}}, audio:true, preferCurrentTab:true, selfBrowserSurface:"include", surfaceSwitching:"include"});
+      stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30,max:30}, width:{ideal:1920}, height:{ideal:1080}}, audio:true, preferCurrentTab:true, selfBrowserSurface:"include", surfaceSwitching:"include"});
     } catch(e){ setStatus("Recording cancelled."); return; }
     const mime=MIMES.find(m=>{ try{ return MediaRecorder.isTypeSupported(m); }catch(e){ return false; } })||"";
     ext=/mp4/.test(mime)?"mp4":"webm";
     // long sessions are written to disk as they go (browser storage), not kept in memory
     file=null; writer=null; chunks=[];
-    try { if (navigator.storage && navigator.storage.getDirectory){ const dir=await navigator.storage.getDirectory(); file=await dir.getFileHandle("session-recording."+ext,{create:true}); writer=await file.createWritable(); } } catch(e){ file=null; writer=null; }
-    rec=new MediaRecorder(stream, Object.assign({videoBitsPerSecond:1500000, audioBitsPerSecond:96000}, mime?{mimeType:mime}:{}));
+    try { if (navigator.storage && navigator.storage.getDirectory){ const dir=await navigator.storage.getDirectory(); for await (const k of dir.keys()){ if (/^session-recording/.test(k)) { try{ await dir.removeEntry(k); }catch(e){} } } file=await dir.getFileHandle("session-recording-"+Date.now()+"."+ext,{create:true}); writer=await file.createWritable(); } } catch(e){ file=null; writer=null; }
+    rec=new MediaRecorder(stream, Object.assign({videoBitsPerSecond:5000000, audioBitsPerSecond:128000}, mime?{mimeType:mime}:{}));
     rec.ondataavailable=e=>{ if (!e.data || !e.data.size) return; if (writer) pending=pending.then(()=>writer.write(e.data)).catch(()=>{ chunks.push(e.data); }); else chunks.push(e.data); };
     rec.onstop=finish;
     stream.getVideoTracks()[0].addEventListener("ended",()=>{ if (rec && rec.state!=="inactive") rec.stop(); });
     rec.start(4000); started=Date.now(); clock(); tick=setInterval(clock,1000); btn.classList.add("primary");
-    setStatus("Recording the session. Press Stop recording when you're done.");
+    setStatus(writer?"Recording the session. Press Stop recording when you're done.":"Recording, but this browser keeps the video in memory: use Chrome or Edge for long sessions.");
   }
   async function finish(){
     clearInterval(tick); btn.classList.remove("primary"); btn.textContent="⏺ Record";
@@ -3663,7 +3663,7 @@ h2.cardHead{display:flex;align-items:center;gap:6px}
     if (chunks.length) blob=blob&&blob.size?new Blob([blob,...chunks],{type:rec.mimeType}):new Blob(chunks,{type:rec.mimeType});
     rec=null; if (!blob || !blob.size){ setStatus("The recording was empty."); return; }
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`session_${stamp()}.${ext}`; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+    setTimeout(async()=>{ URL.revokeObjectURL(a.href); try{ if (file){ const dir=await navigator.storage.getDirectory(); await dir.removeEntry(file.name); } }catch(e){} },120000);
     setStatus(`Recording saved (${Math.round(blob.size/1048576)} MB).`);
   }
   btn.onclick=()=>{ if (rec && rec.state!=="inactive") rec.stop(); else start(); };
